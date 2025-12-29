@@ -2,11 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0d1117">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>Claude Code Remote</title>
+  
+  <!-- PWA Manifest (F029) -->
+  <link rel="manifest" href="/manifest.json">
+  
+  <!-- Apple Touch Icons -->
+  <link rel="apple-touch-icon" href="/icons/icon-192.svg">
+  
   <!-- xterm.js from CDN -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
   <link rel="stylesheet" href="/css/styles.css">
@@ -14,7 +22,10 @@
 <body>
   <div class="app-container">
     <header class="header">
-      <h1>Claude Code</h1>
+      <div class="header-left">
+        <button class="refresh-btn" id="refreshBtn" title="Refresh" aria-label="Refresh page">↻</button>
+        <h1>Claude Code</h1>
+      </div>
       <div class="status-indicator">
         <span class="status-dot"></span>
         <span class="status-text">Connecting...</span>
@@ -35,5 +46,24 @@
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
   <script src="/js/terminal.js"></script>
   <script src="/js/app.js"></script>
+  <script src="/js/mobile.js"></script>
+  <script>
+    // Show refresh button only in standalone/PWA mode
+    (function() {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                           window.navigator.standalone === true ||
+                           document.referrer.includes('android-app://');
+      
+      const refreshBtn = document.getElementById('refreshBtn');
+      if (refreshBtn) {
+        if (isStandalone) {
+          refreshBtn.style.display = 'flex';
+        }
+        refreshBtn.addEventListener('click', () => {
+          window.location.reload();
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 /**
  * Claude Code Remote - Main Application
  * Handles multi-session management, WebSocket connections, and terminal I/O
+ * Updated for Phase 4: Toast notifications (F028), Connection status (F031), Auto-reconnect UI (F032)
  */
 
 const App = {
@@ -8,12 +9,24 @@ const App = {
   activeSessionId: null,     // Currently visible session
   maxReconnectAttempts: 5,
   modalElement: null,        // Current modal reference
+  toastContainer: null,      // Toast notification container
+  
+  // Prompt detection patterns for Claude
+  promptPatterns: [
+    /❯\s*$/,                 // Claude prompt character
+    />\s*$/,                 // Alternative prompt
+    /$\s*$/,                // Bash prompt
+    /claude>\s*$/i           // Claude prefix
+  ],
 
   /**
    * Initialize the application
    */
   async init() {
     console.log("[App] Claude Code Remote initializing...");
+    
+    // Create toast container
+    this.createToastContainer();
     
     // Set up event listeners
     this.setupEventListeners();
@@ -57,6 +70,69 @@ const App = {
   },
 
   // ============================================
+  // Toast Notification System (F028)
+  // ============================================
+
+  /**
+   * Create toast container
+   */
+  createToastContainer() {
+    const container = document.createElement("div");
+    container.className = "toast-container";
+    container.setAttribute("aria-live", "polite");
+    container.setAttribute("aria-atomic", "true");
+    document.body.appendChild(container);
+    this.toastContainer = container;
+  },
+
+  /**
+   * Show a toast notification
+   * @param {string} message - Toast message
+   * @param {string} type - Toast type: success, info, warning, error
+   * @param {number} duration - Duration in ms (0 = permanent until dismissed)
+   */
+  showToast(message, type = "info", duration = 4000) {
+    if (!this.toastContainer) return;
+
+    const toast = document.createElement("div");
+    toast.className = "toast toast-" + type;
+    toast.innerHTML = 
+      "<span class=\"toast-message\">" + this.escapeHtml(message) + "</span>" +
+      "<button class=\"toast-close\" aria-label=\"Dismiss\">×</button>";
+
+    // Dismiss handler
+    const dismiss = () => {
+      toast.classList.add("toast-exit");
+      setTimeout(() => toast.remove(), 200);
+    };
+
+    toast.querySelector(".toast-close").addEventListener("click", dismiss);
+
+    this.toastContainer.appendChild(toast);
+
+    // Trigger enter animation
+    requestAnimationFrame(() => toast.classList.add("toast-enter"));
+
+    // Auto-dismiss
+    if (duration > 0) {
+      setTimeout(dismiss, duration);
+    }
+
+    return { dismiss };
+  },
+
+  /**
+   * Check if output contains a prompt (Claude finished task)
+   * @param {string} data - Terminal output data
+   * @returns {boolean}
+   */
+  detectPrompt(data) {
+    // Check last 50 chars for prompt patterns
+    const tail = data.slice(-50);
+    return this.promptPatterns.some(pattern => pattern.test(tail));
+  },
+
+  // ============================================
   // Utility Functions
   // ============================================
 
@@ -74,7 +150,7 @@ const App = {
    */
   isValidGitUrl(url) {
     // Accept https://, git://, or git@ URLs
-    return /^(https?:\/\/|git:\/\/|git@)[\w.-]+[\/:][\w./-]+$/i.test(url);
+    return /^(https?:\/\/|git:\/\/|git@)[\w.-]+[\/:][\w.\/-]+$/i.test(url);
   },
 
   /**
@@ -131,7 +207,7 @@ const App = {
     modal.innerHTML = `
       <div class="modal-header">
         <h2 id="modal-title">Select Repository</h2>
-        <button class="modal-close" aria-label="Close">\u00d7</button>
+        <button class="modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body">
         <div class="repo-list" id="repoList">
@@ -139,7 +215,7 @@ const App = {
         </div>
         <div class="modal-actions">
           <button class="modal-action-btn" id="cloneBtn">
-            <span class="btn-icon">\u2913</span> Clone from GitHub
+            <span class="btn-icon">⤓</span> Clone from GitHub
           </button>
           <button class="modal-action-btn" id="createBtn">
             <span class="btn-icon">+</span> Create New
@@ -554,7 +630,9 @@ const App = {
       ws: null,
       terminal,
       status: "connecting",
-      reconnectAttempts: 0
+      reconnectAttempts: 0,
+      lastOutputTime: 0,
+      hasRecentOutput: false
     });
     
     // Create tab
@@ -577,7 +655,7 @@ const App = {
     tab.innerHTML = 
       "<span class=\"tab-status\"></span>" +
       "<span class=\"tab-name\">" + escapedName + "</span>" +
-      "<span class=\"tab-close\">\u00d7</span>";
+      "<span class=\"tab-close\">×</span>";
     
     // Tab click - switch session
     tab.addEventListener("click", (e) => {
@@ -628,6 +706,11 @@ const App = {
       // Send resize
       const dims = session.terminal.getDimensions();
       this.sendResize(sessionId, dims.cols, dims.rows);
+    }
+    
+    // Focus mobile input if available
+    if (typeof Mobile !== "undefined" && Mobile.focusInput) {
+      Mobile.focusInput();
     }
     
     // Update status
@@ -737,12 +820,23 @@ const App = {
         this.updateStatus("disconnected", "Disconnected");
       }
       
-      // Attempt reconnect
+      // Attempt reconnect with visual feedback (F032)
       if (event.code !== 1000 && session.reconnectAttempts < this.maxReconnectAttempts) {
         session.reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, session.reconnectAttempts), 10000);
         console.log("[App] Reconnecting in", delay + "ms...");
-        setTimeout(() => this.connectWebSocket(sessionId), delay);
+        
+        // Show reconnect countdown in status (F031)
+        if (sessionId === this.activeSessionId) {
+          this.showReconnectCountdown(sessionId, delay, session.reconnectAttempts);
+        }
+        
+        session.reconnectTimeout = setTimeout(() => this.connectWebSocket(sessionId), delay);
+      } else if (session.reconnectAttempts >= this.maxReconnectAttempts) {
+        if (sessionId === this.activeSessionId) {
+          this.updateStatus("disconnected", "Connection failed");
+          this.showToast("Connection lost. Tap to retry.", "error", 0);
+        }
       }
     };
 
@@ -757,6 +851,30 @@ const App = {
   },
 
   /**
+   * Show reconnect countdown in status (F031, F032)
+   */
+  showReconnectCountdown(sessionId, delay, attempt) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    
+    let remaining = Math.ceil(delay / 1000);
+    
+    const updateCountdown = () => {
+      if (session.status === "connected" || sessionId !== this.activeSessionId) {
+        return; // Stop if connected or not active
+      }
+      
+      if (remaining > 0) {
+        this.updateStatus("connecting", "Reconnecting in " + remaining + "s (" + attempt + "/" + this.maxReconnectAttempts + ")");
+        remaining--;
+        setTimeout(updateCountdown, 1000);
+      }
+    };
+    
+    updateCountdown();
+  },
+
+  /**
    * Handle incoming WebSocket message
    */
   handleMessage(sessionId, msg) {
@@ -766,12 +884,28 @@ const App = {
     switch (msg.type) {
       case "output":
         session.terminal.write(msg.data);
+        
+        // Track output for prompt detection (F028)
+        const now = Date.now();
+        session.lastOutputTime = now;
+        session.hasRecentOutput = true;
+        
         // Mark as active when receiving output
         this.updateTabStatus(sessionId, "active");
-        // Reset to idle after a short delay
+        
+        // Reset to idle after a short delay and check for prompt
         clearTimeout(session.activityTimeout);
         session.activityTimeout = setTimeout(() => {
           this.updateTabStatus(sessionId, "idle");
+          
+          // Check if this looks like Claude finished (prompt detected after output)
+          if (session.hasRecentOutput && this.detectPrompt(msg.data)) {
+            session.hasRecentOutput = false;
+            // Only show toast if this isn't the active tab or page is not visible
+            if (document.hidden || sessionId !== this.activeSessionId) {
+              this.showToast("Claude finished in " + (session.repo || "session"), "success");
+            }
+          }
         }, 500);
         break;
         
@@ -818,7 +952,7 @@ const App = {
     
     const dot = tab.querySelector(".tab-status");
     if (dot) {
-      dot.classList.remove("idle", "active", "disconnected");
+      dot.classList.remove("idle", "active", "disconnected", "connecting");
       if (status !== "connected") {
         dot.classList.add(status);
       }
@@ -842,7 +976,7 @@ const App = {
   },
 
   /**
-   * Update connection status indicator
+   * Update connection status indicator (F031)
    */
   updateStatus(state, message) {
     const dot = document.querySelector(".status-dot");
