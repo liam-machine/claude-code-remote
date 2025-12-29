@@ -5,6 +5,7 @@
  */
 
 const Mobile = {
+  initialized: false,        // Guard to prevent multiple initializations
   controlBar: null,
   controlBarToggle: null,
   hiddenInput: null,
@@ -21,12 +22,19 @@ const Mobile = {
    * Initialize mobile features
    */
   init() {
+    // Guard: Prevent multiple initializations (PWA can trigger init multiple times)
+    if (this.initialized) {
+      console.log('[Mobile] Already initialized, skipping');
+      return;
+    }
+    
     // Only initialize on touch devices
     if (!this.isTouchDevice()) {
       console.log('[Mobile] Not a touch device, skipping mobile init');
       return;
     }
 
+    this.initialized = true;  // Set flag early to prevent re-entry
     console.log('[Mobile] Initializing mobile features...');
     
     // Load saved preference
@@ -195,6 +203,19 @@ const Mobile = {
    * Create hidden input for keyboard capture (F026)
    */
   createHiddenInput() {
+    // Guard: Check if hidden input already exists
+    if (this.hiddenInput) {
+      console.log('[Mobile] Hidden input already exists, skipping creation');
+      return;
+    }
+    
+    // Clean up any orphaned hidden inputs (defensive)
+    const existingInputs = document.querySelectorAll('.hidden-input');
+    existingInputs.forEach(el => {
+      console.log('[Mobile] Removing orphaned hidden input');
+      el.remove();
+    });
+    
     const input = document.createElement('textarea');
     input.className = 'hidden-input';
     input.setAttribute('autocapitalize', 'none');
@@ -206,32 +227,92 @@ const Mobile = {
     document.body.appendChild(input);
     this.hiddenInput = input;
 
-    // Handle input events
+    // Track composition state (iOS autocomplete/IME)
+    let isComposing = false;
+
+    // Handle composition events (iOS autocomplete, IME input)
+    input.addEventListener('compositionstart', () => {
+      isComposing = true;
+    });
+
+    input.addEventListener('compositionend', (e) => {
+      isComposing = false;
+      // Send the final composed text
+      if (e.data && typeof App !== 'undefined' && App.activeSessionId) {
+        App.sendInput(App.activeSessionId, e.data);
+      }
+      e.target.value = '';
+    });
+
+    // Handle input events - THIS IS THE SOLE INPUT SOURCE
+    // xterm.js onData has been disabled to prevent duplication
     input.addEventListener('input', (e) => {
+      // Skip if composing (iOS autocomplete) - compositionend handles it
+      if (isComposing) return;
+      
+      // Set typing guard to prevent layout changes during active typing
+      this.isTyping = true;
+      clearTimeout(this.typingTimeout);
+      this.typingTimeout = setTimeout(() => {
+        this.isTyping = false;
+      }, 500); // Clear after 500ms of no typing
+      
       const data = e.target.value;
       if (data && typeof App !== 'undefined' && App.activeSessionId) {
         App.sendInput(App.activeSessionId, data);
       }
       // Clear the input
       e.target.value = '';
+      
+      // Stop propagation to prevent any xterm.js listeners from firing
+      e.stopPropagation();
     });
 
     // Handle special keys via keydown
     input.addEventListener('keydown', (e) => {
-      // Let the input event handle regular characters
+      // Skip if composing
+      if (isComposing) return;
+      
       // Handle special keys here
       if (e.key === 'Enter') {
         e.preventDefault();
+        e.stopPropagation();
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\r');
         }
       } else if (e.key === 'Backspace') {
         e.preventDefault();
+        e.stopPropagation();
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\x7f');
         }
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof App !== 'undefined' && App.activeSessionId) {
+          App.sendInput(App.activeSessionId, '\t');
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof App !== 'undefined' && App.activeSessionId) {
+          App.sendInput(App.activeSessionId, '\x1b');
+        }
+      } else if (e.ctrlKey && e.key === 'c') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof App !== 'undefined' && App.activeSessionId) {
+          App.sendInput(App.activeSessionId, '\x03');
+        }
+      } else if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof App !== 'undefined' && App.activeSessionId) {
+          App.sendInput(App.activeSessionId, '\x04');
+        }
       }
     });
+
 
     // Prevent zoom on double-tap
     input.addEventListener('touchend', (e) => {
@@ -321,6 +402,11 @@ const Mobile = {
    * Includes debouncing to prevent layout thrashing in iOS PWA
    */
   handleViewportChange() {
+    // Skip viewport changes while actively typing to prevent PWA viewport jumping
+    if (this.isTyping) {
+      return;
+    }
+    
     const now = Date.now();
 
     // Skip if called too recently (within 50ms) - prevents rapid-fire updates
@@ -390,21 +476,24 @@ const Mobile = {
         appContainer.style.maxHeight = availableHeight + 'px';
       }
       
-      // Position control bar above keyboard
-      if (this.controlBar && window.visualViewport) {
-        const keyboardTop = window.visualViewport.height + window.visualViewport.offsetTop;
-        this.controlBar.style.position = 'fixed';
-        this.controlBar.style.bottom = 'auto';
-        this.controlBar.style.top = (keyboardTop - 52) + 'px';
-      }
-      
-      // Position toggle button
-      if (this.controlBarToggle && window.visualViewport) {
-        const keyboardTop = window.visualViewport.height + window.visualViewport.offsetTop;
-        const toggleBottom = this.isControlBarVisible ? 60 : 8;
-        this.controlBarToggle.style.position = 'fixed';
-        this.controlBarToggle.style.bottom = 'auto';
-        this.controlBarToggle.style.top = (keyboardTop - toggleBottom - 44) + 'px';
+      // Position control bar and toggle above keyboard
+      // Single visualViewport read to prevent race conditions
+      if (window.visualViewport) {
+        const vp = window.visualViewport;
+        const keyboardTop = vp.height + vp.offsetTop;
+        
+        if (this.controlBar) {
+          this.controlBar.style.position = 'fixed';
+          this.controlBar.style.bottom = 'auto';
+          this.controlBar.style.top = (keyboardTop - 52) + 'px';
+        }
+        
+        if (this.controlBarToggle) {
+          const toggleBottom = this.isControlBarVisible ? 60 : 8;
+          this.controlBarToggle.style.position = 'fixed';
+          this.controlBarToggle.style.bottom = 'auto';
+          this.controlBarToggle.style.top = (keyboardTop - toggleBottom - 44) + 'px';
+        }
       }
     } else {
       // Reset to normal layout
@@ -431,21 +520,12 @@ const Mobile = {
   },
 
   /**
-   * Fit terminal to container and scroll to bottom
+   * Fit terminal to container - uses centralized ResizeCoordinator
+   * This prevents multiple competing fit() calls from different event handlers
    */
   fitTerminal() {
-    if (typeof App !== 'undefined' && App.activeSessionId) {
-      const session = App.sessions.get(App.activeSessionId);
-      if (session && session.terminal) {
-        // Small delay to let CSS settle
-        setTimeout(() => {
-          session.terminal.fit();
-          const dims = session.terminal.getDimensions();
-          if (dims.cols && dims.rows) {
-            App.sendResize(App.activeSessionId, dims.cols, dims.rows);
-          }
-        }, 50);
-      }
+    if (typeof ResizeCoordinator !== 'undefined') {
+      ResizeCoordinator.requestFit();
     }
   },
 

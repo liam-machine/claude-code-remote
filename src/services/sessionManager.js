@@ -32,11 +32,15 @@ export function createSession(options = {}) {
   
   const pty = spawnPty({ cwd });
   
+  // Detect home directory to display as "~" instead of username
+  const isHomeDir = cwd === "/home/liam" || cwd === process.env.HOME;
+  const repoName = isHomeDir ? "~" : path.basename(cwd);
+  
   const session = {
     id,
     pty,
     repoPath: cwd,
-    repo: path.basename(cwd),
+    repo: repoName,
     status: 'running',
     createdAt: new Date().toISOString()
   };

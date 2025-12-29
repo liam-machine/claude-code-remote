@@ -699,16 +699,26 @@ html, body {
    iOS tries to scroll fixed inputs into view on every keystroke,
    causing viewport bounce. Absolute + far left prevents this. */
 .hidden-input {
-  position: absolute;
+  /* PWA-optimized hidden input - prevents iOS scroll-into-view behavior */
+  /* Using position:fixed at viewport origin with full opacity:0 */
+  /* This keeps input in viewport bounds so iOS won't try to scroll to it */
+  position: fixed;
   top: 0;
-  left: -9999px;
+  left: 0;
   width: 1px;
   height: 1px;
-  opacity: 0.01;              /* Near-invisible but iOS still registers it */
+  opacity: 0;
   pointer-events: none;
   font-size: 16px;            /* Prevents iOS zoom on focus */
-  -webkit-transform: translateX(-9999px); /* Extra insurance for iOS */
-  transform: translateX(-9999px);
+  z-index: -1;                /* Behind all content */
+  border: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;   /* Hide cursor */
+  resize: none;
+  outline: none;
+  -webkit-appearance: none;
+  /* No transforms - they can trigger iOS layout recalc */
 }
 
 /* Control Bar (F025) */
@@ -1042,8 +1052,10 @@ html, body {
 }
 
 /* iOS keyboard visibility adjustments */
+/* NOTE: Removed height/max-height transitions - they conflicted with
+   ResizeCoordinator timing and caused viewport flickering on iOS PWA.
+   Layout changes are now instant for smoother terminal resizing. */
 .app-container {
-  transition: height 0.1s ease-out, max-height 0.1s ease-out;
   overflow: hidden;
 }
 
@@ -1174,4 +1186,18 @@ body.keyboard-open {
   transform: rotate(180deg);
   background: var(--accent);
   color: var(--bg-primary);
+}
+
+/* Home directory repo option styling */
+.repo-item-home {
+  border-left: 3px solid var(--accent);
+  background: rgba(var(--accent-rgb, 88, 166, 255), 0.05);
+}
+
+.repo-item-home:hover {
+  background: rgba(var(--accent-rgb, 88, 166, 255), 0.1);
+}
+
+.repo-item-home .repo-name {
+  color: var(--accent);
 }

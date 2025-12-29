@@ -55,16 +55,9 @@ const App = {
       this.showRepoModal();
     });
 
-    // Handle resize for active terminal
+    // Handle resize for active terminal - use centralized coordinator
     window.addEventListener("resize", () => {
-      if (this.activeSessionId && this.sessions.has(this.activeSessionId)) {
-        const session = this.sessions.get(this.activeSessionId);
-        if (session.terminal) {
-          session.terminal.fit();
-          const dims = session.terminal.getDimensions();
-          this.sendResize(this.activeSessionId, dims.cols, dims.rows);
-        }
-      }
+      ResizeCoordinator.requestFit();
     });
 
     // Close modal on Escape key
@@ -961,10 +954,10 @@ const App = {
       console.error("[App] WebSocket error:", sessionId, error);
     };
 
-    // Wire up terminal input
-    session.terminal.onData((data) => {
-      this.sendInput(sessionId, data);
-    });
+    // NOTE: Removed terminal.onData() binding - was causing input tripling in PWA mode
+    // Input is now handled EXCLUSIVELY by mobile.js hidden textarea
+    // This prevents duplicate input from xterm.js built-in keyboard handling
+    // See: mobile.js setupHiddenInput() for the sole input source
   },
 
   /**
