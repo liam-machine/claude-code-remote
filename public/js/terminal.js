@@ -58,7 +58,11 @@ const TerminalManager = {
       scrollback: 5000,
       tabStopWidth: 4,
       allowProposedApi: true,
-      convertEol: true
+      convertEol: true,
+      // Touch/scroll improvements
+      scrollOnUserInput: true,
+      fastScrollModifier: 'none',
+      smoothScrollDuration: 0
     });
 
     // Initialize fit addon for automatic resizing
@@ -113,6 +117,28 @@ const TerminalManager = {
       },
 
       /**
+       * Scroll terminal to bottom
+       */
+      scrollToBottom() {
+        terminal.scrollToBottom();
+      },
+
+      /**
+       * Scroll terminal to top
+       */
+      scrollToTop() {
+        terminal.scrollToTop();
+      },
+
+      /**
+       * Scroll terminal by number of lines (negative = up, positive = down)
+       * @param {number} lines - Number of lines to scroll
+       */
+      scrollLines(lines) {
+        terminal.scrollLines(lines);
+      },
+
+      /**
        * Get current terminal dimensions
        * @returns {{cols: number, rows: number}}
        */
@@ -133,6 +159,13 @@ const TerminalManager = {
        */
       dispose() {
         terminal.dispose();
+      },
+
+      /**
+       * Get the underlying xterm.js terminal (for advanced use)
+       */
+      getRawTerminal() {
+        return terminal;
       }
     };
   },

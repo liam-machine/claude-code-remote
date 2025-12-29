@@ -120,6 +120,7 @@ const Mobile = {
         <button class="control-btn arrow-btn" data-key="left" aria-label="Arrow Left">←</button>
         <button class="control-btn arrow-btn" data-key="right" aria-label="Arrow Right">→</button>
         <div class="control-divider"></div>
+        <button class="control-btn scroll-btn" data-action="scroll-bottom" aria-label="Scroll to bottom">⤓</button>
         <button class="control-btn hide-btn" data-action="hide" aria-label="Hide control bar">✕</button>
       </div>
     `;
@@ -146,6 +147,28 @@ const Mobile = {
         e.preventDefault();
         this.toggleControlBar();
       });
+    }
+    
+    // Add click handler for scroll-to-bottom button
+    const scrollBtn = controlBar.querySelector('.scroll-btn');
+    if (scrollBtn) {
+      scrollBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.scrollToBottom();
+      });
+    }
+  },
+  
+  /**
+   * Scroll terminal to bottom
+   */
+  scrollToBottom() {
+    if (typeof App !== 'undefined' && App.activeSessionId) {
+      const session = App.sessions.get(App.activeSessionId);
+      if (session && session.terminal && session.terminal.scrollToBottom) {
+        session.terminal.scrollToBottom();
+        console.log('[Mobile] Scrolled to bottom');
+      }
     }
   },
 

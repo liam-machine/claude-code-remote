@@ -1027,3 +1027,10 @@ html, body {
     display: none;
   }
 }
+
+/* Scroll to bottom button */
+.control-btn.scroll-btn {
+  min-width: 32px;
+  padding: 0;
+  font-size: 14px;
+}
