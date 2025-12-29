@@ -11,6 +11,7 @@ const Mobile = {
   isKeyboardVisible: false,
   isControlBarVisible: false,
   keyboardHeight: 0,
+  pendingScrollToBottom: false,
 
   /**
    * Initialize mobile features
@@ -86,8 +87,8 @@ const Mobile = {
       this.controlBarToggle.classList.toggle('active', this.isControlBarVisible);
     }
     
-    // Update terminal height
-    this.updateTerminalHeight();
+    // Update layout
+    this.updateLayout();
     
     console.log('[Mobile] Control bar', this.isControlBarVisible ? 'shown' : 'hidden');
   },
@@ -105,23 +106,23 @@ const Mobile = {
     }
     
     controlBar.innerHTML = `
-      <div class="control-bar-inner">
-        <button class="control-btn" data-key="ctrl-c" aria-label="Control C">
-          <span class="ctrl-label">Ctrl</span>C
+      <div class=control-bar-inner>
+        <button class=control-btn data-key=ctrl-c aria-label=Control C>
+          <span class=ctrl-label>Ctrl</span>C
         </button>
-        <button class="control-btn" data-key="ctrl-d" aria-label="Control D">
-          <span class="ctrl-label">Ctrl</span>D
+        <button class=control-btn data-key=ctrl-d aria-label=Control D>
+          <span class=ctrl-label>Ctrl</span>D
         </button>
-        <button class="control-btn" data-key="tab" aria-label="Tab">Tab</button>
-        <button class="control-btn" data-key="esc" aria-label="Escape">Esc</button>
-        <div class="control-divider"></div>
-        <button class="control-btn arrow-btn" data-key="up" aria-label="Arrow Up">↑</button>
-        <button class="control-btn arrow-btn" data-key="down" aria-label="Arrow Down">↓</button>
-        <button class="control-btn arrow-btn" data-key="left" aria-label="Arrow Left">←</button>
-        <button class="control-btn arrow-btn" data-key="right" aria-label="Arrow Right">→</button>
-        <div class="control-divider"></div>
-        <button class="control-btn scroll-btn" data-action="scroll-bottom" aria-label="Scroll to bottom">⤓</button>
-        <button class="control-btn hide-btn" data-action="hide" aria-label="Hide control bar">✕</button>
+        <button class=control-btn data-key=tab aria-label=Tab>Tab</button>
+        <button class=control-btn data-key=esc aria-label=Escape>Esc</button>
+        <div class=control-divider></div>
+        <button class=control-btn arrow-btn data-key=up aria-label=Arrow Up>↑</button>
+        <button class=control-btn arrow-btn data-key=down aria-label=Arrow Down>↓</button>
+        <button class=control-btn arrow-btn data-key=left aria-label=Arrow Left>←</button>
+        <button class=control-btn arrow-btn data-key=right aria-label=Arrow Right>→</button>
+        <div class=control-divider></div>
+        <button class=control-btn scroll-btn data-action=scroll-bottom aria-label=Scroll to bottom>⤓</button>
+        <button class=control-btn hide-btn data-action=hide aria-label=Hide control bar>✕</button>
       </div>
     `;
 
@@ -260,107 +261,156 @@ const Mobile = {
    * Setup keyboard visibility detection (F027)
    */
   setupKeyboardDetection() {
-    // Use visualViewport API if available (preferred)
+    // Use visualViewport API (preferred for iOS)
     if (window.visualViewport) {
+      // Listen to both resize and scroll events
       window.visualViewport.addEventListener('resize', () => {
-        this.handleViewportResize();
+        this.handleViewportChange();
       });
-    } else {
-      // Fallback to window resize
-      window.addEventListener('resize', () => {
-        this.handleViewportResize();
+      window.visualViewport.addEventListener('scroll', () => {
+        this.handleViewportChange();
       });
     }
+    
+    // Fallback to window resize
+    window.addEventListener('resize', () => {
+      this.handleViewportChange();
+    });
 
-    // Also detect focus/blur on hidden input
+    // Detect focus/blur on hidden input for keyboard
     if (this.hiddenInput) {
       this.hiddenInput.addEventListener('focus', () => {
-        // Small delay to let keyboard animation complete
-        setTimeout(() => this.handleViewportResize(), 300);
+        this.pendingScrollToBottom = true;
+        // Delay to let keyboard animation start
+        setTimeout(() => this.handleViewportChange(), 100);
+        // Another check after keyboard fully opens
+        setTimeout(() => {
+          this.handleViewportChange();
+          if (this.pendingScrollToBottom) {
+            this.scrollToBottom();
+            this.pendingScrollToBottom = false;
+          }
+        }, 400);
       });
       
       this.hiddenInput.addEventListener('blur', () => {
-        setTimeout(() => this.handleViewportResize(), 100);
+        setTimeout(() => this.handleViewportChange(), 100);
       });
     }
   },
 
   /**
-   * Handle viewport resize (keyboard show/hide)
+   * Handle viewport changes (keyboard show/hide on iOS)
    */
-  handleViewportResize() {
-    const viewportHeight = window.visualViewport 
-      ? window.visualViewport.height 
-      : window.innerHeight;
+  handleViewportChange() {
+    let viewportHeight, viewportTop;
+    
+    if (window.visualViewport) {
+      viewportHeight = window.visualViewport.height;
+      viewportTop = window.visualViewport.offsetTop;
+    } else {
+      viewportHeight = window.innerHeight;
+      viewportTop = 0;
+    }
     
     const windowHeight = window.innerHeight;
-    const heightDiff = windowHeight - viewportHeight;
+    const heightDiff = windowHeight - viewportHeight - viewportTop;
     
-    // If viewport is significantly smaller than window, keyboard is visible
+    // Keyboard is visible if viewport is significantly smaller
     const wasKeyboardVisible = this.isKeyboardVisible;
-    this.isKeyboardVisible = heightDiff > 150;
+    this.isKeyboardVisible = heightDiff > 100;
     this.keyboardHeight = this.isKeyboardVisible ? heightDiff : 0;
 
-    // Update control bar position
-    this.updateControlBarPosition();
+    // Update layout
+    this.updateLayout();
 
-    // Update terminal container height
-    this.updateTerminalHeight();
-
-    // Log state change
-    if (wasKeyboardVisible !== this.isKeyboardVisible) {
-      console.log('[Mobile] Keyboard', this.isKeyboardVisible ? 'shown' : 'hidden', 
-                  'height:', this.keyboardHeight);
+    // When keyboard just appeared, scroll to bottom
+    if (this.isKeyboardVisible && !wasKeyboardVisible) {
+      console.log('[Mobile] Keyboard shown, height:', this.keyboardHeight);
+      // Scroll to bottom after layout update
+      setTimeout(() => this.scrollToBottom(), 50);
+    } else if (!this.isKeyboardVisible && wasKeyboardVisible) {
+      console.log('[Mobile] Keyboard hidden');
     }
   },
 
   /**
-   * Update control bar position based on keyboard
+   * Update layout based on keyboard and control bar state
    */
-  updateControlBarPosition() {
-    if (!this.controlBar) return;
-
-    if (this.isKeyboardVisible && window.visualViewport) {
-      // Position above keyboard
-      const bottom = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
-      this.controlBar.style.bottom = bottom + 'px';
-      if (this.controlBarToggle) {
-        this.controlBarToggle.style.bottom = (bottom + (this.isControlBarVisible ? 52 : 0) + 8) + 'px';
-      }
-    } else {
-      // Reset to default (CSS handles safe area)
-      this.controlBar.style.bottom = '';
-      if (this.controlBarToggle) {
-        this.controlBarToggle.style.bottom = '';
-      }
-    }
-  },
-
-  /**
-   * Update terminal container height
-   */
-  updateTerminalHeight() {
+  updateLayout() {
     const terminalContainer = document.getElementById('terminalContainer');
+    const appContainer = document.querySelector('.app-container');
+    
     if (!terminalContainer) return;
 
+    // Calculate the space taken by keyboard and control bar
+    const controlBarHeight = (this.controlBar && this.isControlBarVisible) ? 52 : 0;
+    const totalOffset = this.keyboardHeight + controlBarHeight;
+
     if (this.isKeyboardVisible) {
-      // Account for control bar height (if visible) + keyboard
-      const controlBarHeight = (this.controlBar && this.isControlBarVisible) ? this.controlBar.offsetHeight : 0;
-      const offset = this.keyboardHeight + controlBarHeight;
-      terminalContainer.style.paddingBottom = offset + 'px';
+      // Reduce the app container height to fit above keyboard
+      if (appContainer) {
+        const availableHeight = window.visualViewport 
+          ? window.visualViewport.height 
+          : (window.innerHeight - this.keyboardHeight);
+        appContainer.style.height = availableHeight + 'px';
+        appContainer.style.maxHeight = availableHeight + 'px';
+      }
+      
+      // Position control bar above keyboard
+      if (this.controlBar && window.visualViewport) {
+        const keyboardTop = window.visualViewport.height + window.visualViewport.offsetTop;
+        this.controlBar.style.position = 'fixed';
+        this.controlBar.style.bottom = 'auto';
+        this.controlBar.style.top = (keyboardTop - 52) + 'px';
+      }
+      
+      // Position toggle button
+      if (this.controlBarToggle && window.visualViewport) {
+        const keyboardTop = window.visualViewport.height + window.visualViewport.offsetTop;
+        const toggleBottom = this.isControlBarVisible ? 60 : 8;
+        this.controlBarToggle.style.position = 'fixed';
+        this.controlBarToggle.style.bottom = 'auto';
+        this.controlBarToggle.style.top = (keyboardTop - toggleBottom - 44) + 'px';
+      }
     } else {
-      // Reset - let CSS handle safe area
-      terminalContainer.style.paddingBottom = '';
+      // Reset to normal layout
+      if (appContainer) {
+        appContainer.style.height = '';
+        appContainer.style.maxHeight = '';
+      }
+      
+      if (this.controlBar) {
+        this.controlBar.style.position = '';
+        this.controlBar.style.bottom = '';
+        this.controlBar.style.top = '';
+      }
+      
+      if (this.controlBarToggle) {
+        this.controlBarToggle.style.position = '';
+        this.controlBarToggle.style.bottom = '';
+        this.controlBarToggle.style.top = '';
+      }
     }
 
-    // Trigger terminal resize
+    // Fit terminal to new size
+    this.fitTerminal();
+  },
+
+  /**
+   * Fit terminal to container and scroll to bottom
+   */
+  fitTerminal() {
     if (typeof App !== 'undefined' && App.activeSessionId) {
       const session = App.sessions.get(App.activeSessionId);
       if (session && session.terminal) {
+        // Small delay to let CSS settle
         setTimeout(() => {
           session.terminal.fit();
           const dims = session.terminal.getDimensions();
-          App.sendResize(App.activeSessionId, dims.cols, dims.rows);
+          if (dims.cols && dims.rows) {
+            App.sendResize(App.activeSessionId, dims.cols, dims.rows);
+          }
         }, 50);
       }
     }

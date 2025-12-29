@@ -1034,3 +1034,28 @@ html, body {
   padding: 0;
   font-size: 14px;
 }
+
+/* iOS keyboard visibility adjustments */
+.app-container {
+  transition: height 0.1s ease-out, max-height 0.1s ease-out;
+  overflow: hidden;
+}
+
+.terminal-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Ensure terminal wrapper fills available space */
+.terminal-wrapper {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Prevent body scroll when keyboard is open */
+body.keyboard-open {
+  position: fixed;
+  width: 100%;
+  overflow: hidden;
+}
