@@ -29,7 +29,28 @@
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-  <div class="app-container">
+  <!-- Loading Screen - Shows immediately while app initializes -->
+  <div id="loadingScreen" class="loading-screen">
+    <div class="loading-content">
+      <div class="loading-logo">⟩_</div>
+      <h1 class="loading-title">Claude Code</h1>
+      <div class="loading-spinner"></div>
+      <p class="loading-status" id="loadingStatus">Starting up...</p>
+      
+      <!-- Elapsed time (shows after 3s) -->
+      <div class="loading-elapsed" id="loadingElapsed">
+        <span class="elapsed-time" id="elapsedTime">0s</span>
+        <span class="elapsed-hint" id="elapsedHint"></span>
+      </div>
+      
+      <!-- Retry button (shows after 45s) -->
+      <button id="retryBtn" class="loading-retry-btn" style="display: none;">
+        Retry Connection
+      </button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appContainer">
     <header class="header">
       <div class="header-left">
         <button class="refresh-btn" id="refreshBtn" title="Hard Refresh App" aria-label="Hard refresh app">↻</button>

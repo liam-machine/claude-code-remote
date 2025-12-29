@@ -22,16 +22,44 @@ const App = {
   ],
 
   /**
+   * Update loading screen status text
+   */
+  updateLoadingStatus(status) {
+    const loadingStatus = document.getElementById('loadingStatus');
+    if (loadingStatus) {
+      loadingStatus.textContent = status;
+    }
+    console.log('[Loading]', status);
+  },
+
+  /**
+   * Hide loading screen and show app
+   */
+  hideLoadingScreen() {
+    // Force-hide loading screen - use multiple methods for iOS PWA reliability
+    const loadingScreen = document.getElementById('loadingScreen');
+    if (loadingScreen) {
+      loadingScreen.classList.add('hidden');
+      // iOS PWA: Force display none after transition completes
+      setTimeout(() => {
+        loadingScreen.style.display = 'none';
+      }, 350);
+    }
+  },
+
+  /**
    * Initialize the application
    */
   async init() {
     console.log("[App] Claude Code Remote initializing...");
+    this.updateLoadingStatus('Initializing...');
 
     // Create toast container
     this.createToastContainer();
 
     // Set up event listeners
     this.setupEventListeners();
+    this.updateLoadingStatus('Loading sessions...');
 
     // Load existing sessions
     await this.loadExistingSessions();
@@ -39,6 +67,10 @@ const App = {
     // Mark as initialized - now safe to run checkAllConnections()
     this.initialized = true;
     console.log("[App] Initialization complete");
+    
+    // Hide loading screen
+    this.updateLoadingStatus('Ready!');
+    setTimeout(() => this.hideLoadingScreen(), 300);
 
     // If no sessions exist, show empty state
     if (this.sessions.size === 0) {
@@ -622,14 +654,22 @@ const App = {
    */
   async loadExistingSessions() {
     try {
+      this.updateLoadingStatus('Fetching sessions...');
       const response = await fetch("/api/sessions");
       if (!response.ok) throw new Error("Failed to fetch sessions");
       
       const sessions = await response.json();
       console.log("[App] Found existing sessions:", sessions.length);
       
-      // Initialize each session
-      for (const sessionData of sessions) {
+      if (sessions.length === 0) {
+        this.updateLoadingStatus('No existing sessions');
+        return;
+      }
+      
+      // Initialize sessions with progress updates
+      for (let i = 0; i < sessions.length; i++) {
+        const sessionData = sessions[i];
+        this.updateLoadingStatus();
         await this.initSession(sessionData);
       }
       
@@ -641,6 +681,7 @@ const App = {
       this.updateNewSessionButton();
     } catch (err) {
       console.error("[App] Failed to load sessions:", err);
+      this.updateLoadingStatus('Connection failed');
       this.updateStatus("disconnected", "Load Error");
     }
   },
@@ -873,6 +914,8 @@ const App = {
 
       if (sessionId === this.activeSessionId) {
         this.updateStatus("connected", "Connected");
+        // Ensure loading screen is hidden when connection succeeds
+        this.hideLoadingScreen();
 
         // Send initial size and focus
         if (session.terminal) {
