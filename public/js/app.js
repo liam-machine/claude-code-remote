@@ -67,6 +67,50 @@ const App = {
         this.hideRepoModal();
       }
     });
+
+    // iOS PWA: Handle visibility changes to detect/fix zombie connections
+    // iOS freezes PWAs when backgrounded without firing WebSocket close events
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        console.log("[App] App became visible - checking connections");
+        this.checkAllConnections();
+      }
+    });
+
+    // Handle iOS bfcache restoration
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) {
+        console.log("[App] Page restored from bfcache - checking connections");
+        this.checkAllConnections();
+      }
+    });
+
+    // Handle online/offline events
+    window.addEventListener("online", () => {
+      console.log("[App] Network came online - checking connections");
+      this.checkAllConnections();
+    });
+  },
+
+  /**
+   * Check all session connections and reconnect if needed (iOS PWA fix)
+   */
+  checkAllConnections() {
+    for (const [sessionId, session] of this.sessions) {
+      if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
+        console.log("[App] Session", sessionId, "needs reconnection");
+        this.connectWebSocket(sessionId);
+      } else {
+        // Send a ping to verify connection is truly alive
+        // iOS can leave connections in zombie state
+        try {
+          session.ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+        } catch (e) {
+          console.log("[App] Session", sessionId, "ping failed, reconnecting");
+          this.connectWebSocket(sessionId);
+        }
+      }
+    }
   },
 
   // ============================================
@@ -784,15 +828,26 @@ const App = {
     const ws = new WebSocket(wsUrl);
     session.ws = ws;
 
+    // Connection timeout warning for slow connections (PWA optimization)
+    const connectionTimeout = setTimeout(() => {
+      if (session.status === "connecting") {
+        console.warn("[App] WebSocket connection taking longer than expected");
+        if (sessionId === this.activeSessionId) {
+          this.showToast("Connection taking longer than expected...", "warning", 5000);
+        }
+      }
+    }, 3000);
+
     ws.onopen = () => {
+      clearTimeout(connectionTimeout);
       console.log("[App] WebSocket connected:", sessionId);
       session.reconnectAttempts = 0;
       session.status = "connected";
       this.updateTabStatus(sessionId, "idle");
-      
+
       if (sessionId === this.activeSessionId) {
         this.updateStatus("connected", "Connected");
-        
+
         // Send initial size and focus
         if (session.terminal) {
           const dims = session.terminal.getDimensions();
@@ -800,6 +855,22 @@ const App = {
           session.terminal.focus();
         }
       }
+
+      // iOS PWA: Start client-side heartbeat to detect zombie connections
+      // iOS can leave WebSockets in a "connected" state that's actually dead
+      if (session.heartbeatInterval) {
+        clearInterval(session.heartbeatInterval);
+      }
+      session.heartbeatInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+          // Set pong timeout - if no response, connection is dead
+          session.pongTimeout = setTimeout(() => {
+            console.warn("[App] Pong timeout - connection may be dead, forcing reconnect");
+            ws.close();
+          }, 10000); // 10 second timeout for pong
+        }
+      }, 20000); // Send heartbeat every 20 seconds
     };
 
     ws.onmessage = (event) => {
@@ -813,13 +884,24 @@ const App = {
 
     ws.onclose = (event) => {
       console.log("[App] WebSocket closed:", sessionId, event.code);
+
+      // Clean up heartbeat intervals
+      if (session.heartbeatInterval) {
+        clearInterval(session.heartbeatInterval);
+        session.heartbeatInterval = null;
+      }
+      if (session.pongTimeout) {
+        clearTimeout(session.pongTimeout);
+        session.pongTimeout = null;
+      }
+
       session.status = "disconnected";
       this.updateTabStatus(sessionId, "disconnected");
-      
+
       if (sessionId === this.activeSessionId) {
         this.updateStatus("disconnected", "Disconnected");
       }
-      
+
       // Attempt reconnect with visual feedback (F032)
       if (event.code !== 1000 && session.reconnectAttempts < this.maxReconnectAttempts) {
         session.reconnectAttempts++;
@@ -841,6 +923,7 @@ const App = {
     };
 
     ws.onerror = (error) => {
+      clearTimeout(connectionTimeout);
       console.error("[App] WebSocket error:", sessionId, error);
     };
 
@@ -917,7 +1000,15 @@ const App = {
         console.log("[App] PTY exited:", sessionId, msg.code);
         session.terminal.write("\r\n\x1b[33m[Process exited with code " + msg.code + "]\x1b[0m\r\n");
         break;
-        
+
+      case "pong":
+        // Clear pong timeout - connection is alive
+        if (session.pongTimeout) {
+          clearTimeout(session.pongTimeout);
+          session.pongTimeout = null;
+        }
+        break;
+
       default:
         console.log("[App] Unknown message:", msg.type);
     }

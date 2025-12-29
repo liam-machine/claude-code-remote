@@ -8,13 +8,22 @@
   <meta name="theme-color" content="#0d1117">
   <meta name="mobile-web-app-capable" content="yes">
   <title>Claude Code Remote</title>
-  
+
+  <!-- Preconnect to CDN for faster resource loading -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+
+  <!-- Preload critical CDN assets -->
+  <link rel="preload" as="style" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js">
+  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js">
+
   <!-- PWA Manifest (F029) -->
   <link rel="manifest" href="/manifest.json">
-  
+
   <!-- Apple Touch Icons -->
   <link rel="apple-touch-icon" href="/icons/icon-192.svg">
-  
+
   <!-- xterm.js from CDN -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
   <link rel="stylesheet" href="/css/styles.css">
@@ -24,7 +33,7 @@
     <header class="header">
       <div class="header-left">
         <button class="refresh-btn" id="refreshBtn" title="Hard Refresh App" aria-label="Hard refresh app">↻</button>
-        <h1>Claude Code</h1>
+        <h1>Claude Code CLI</h1>
       </div>
       <div class="status-indicator">
         <span class="status-dot"></span>

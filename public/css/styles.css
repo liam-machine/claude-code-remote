@@ -7,6 +7,7 @@
   --text-primary: #e6edf3;
   --text-secondary: #8b949e;
   --accent: #58a6ff;
+  --claude-orange: #f97316;
   --accent-hover: #79c0ff;
   --border: #30363d;
   --success: #3fb950;
@@ -54,7 +55,7 @@ html, body {
 .header h1 {
   font-size: 1rem;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--claude-orange);
 }
 
 .status-indicator {
@@ -694,15 +695,20 @@ html, body {
    ============================================ */
 
 /* Hidden Input for Mobile Keyboard (F026) */
+/* CRITICAL: Use absolute positioning off-screen, not fixed at -100px
+   iOS tries to scroll fixed inputs into view on every keystroke,
+   causing viewport bounce. Absolute + far left prevents this. */
 .hidden-input {
-  position: fixed;
-  top: -100px;
-  left: -100px;
+  position: absolute;
+  top: 0;
+  left: -9999px;
   width: 1px;
   height: 1px;
-  opacity: 0;
+  opacity: 0.01;              /* Near-invisible but iOS still registers it */
   pointer-events: none;
-  font-size: 16px; /* Prevents iOS zoom on focus */
+  font-size: 16px;            /* Prevents iOS zoom on focus */
+  -webkit-transform: translateX(-9999px); /* Extra insurance for iOS */
+  transform: translateX(-9999px);
 }
 
 /* Control Bar (F025) */

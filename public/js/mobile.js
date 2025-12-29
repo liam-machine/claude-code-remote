@@ -12,6 +12,10 @@ const Mobile = {
   isControlBarVisible: false,
   keyboardHeight: 0,
   pendingScrollToBottom: false,
+  // Debouncing properties to prevent layout thrashing on iOS PWA
+  viewportChangeTimeout: null,
+  lastViewportHeight: 0,
+  lastViewportUpdate: 0,
 
   /**
    * Initialize mobile features
@@ -254,49 +258,78 @@ const Mobile = {
    */
   setupKeyboardDetection() {
     // Use visualViewport API (preferred for iOS)
+    // Debounce to prevent rapid-fire updates during keyboard animations
+    let viewportEventTimeout = null;
+    const debouncedViewportChange = () => {
+      if (viewportEventTimeout) return; // Already scheduled
+      viewportEventTimeout = setTimeout(() => {
+        viewportEventTimeout = null;
+        this.handleViewportChange();
+      }, 250); // 250ms debounce - enough for keyboard animation to settle
+    };
+
     if (window.visualViewport) {
-      // Listen to both resize and scroll events
-      window.visualViewport.addEventListener('resize', () => {
-        this.handleViewportChange();
-      });
-      window.visualViewport.addEventListener('scroll', () => {
-        this.handleViewportChange();
-      });
+      // ONLY listen to resize events - NOT scroll
+      // Scroll events fire on every keystroke when iOS tries to scroll
+      // the hidden input into view, causing viewport bounce
+      window.visualViewport.addEventListener('resize', debouncedViewportChange);
+      // REMOVED: scroll listener - caused bounce on every keystroke
     }
-    
+
     // Fallback to window resize
-    window.addEventListener('resize', () => {
-      this.handleViewportChange();
-    });
+    window.addEventListener('resize', debouncedViewportChange);
 
     // Detect focus/blur on hidden input for keyboard
+    // CRITICAL: Use debouncing to prevent layout thrashing on iOS PWA
     if (this.hiddenInput) {
       this.hiddenInput.addEventListener('focus', () => {
         this.pendingScrollToBottom = true;
-        // Delay to let keyboard animation start
-        setTimeout(() => this.handleViewportChange(), 100);
-        // Another check after keyboard fully opens
-        setTimeout(() => {
+
+        // Cancel any pending viewport change
+        if (this.viewportChangeTimeout) {
+          clearTimeout(this.viewportChangeTimeout);
+        }
+
+        // Wait for keyboard animation to settle before updating layout
+        this.viewportChangeTimeout = setTimeout(() => {
           this.handleViewportChange();
           if (this.pendingScrollToBottom) {
-            this.scrollToBottom();
-            this.pendingScrollToBottom = false;
+            setTimeout(() => {
+              this.scrollToBottom();
+              this.pendingScrollToBottom = false;
+            }, 100);
           }
-        }, 400);
+        }, 300); // Single debounced call after animation settles
       });
-      
+
       this.hiddenInput.addEventListener('blur', () => {
-        setTimeout(() => this.handleViewportChange(), 100);
+        // Cancel any pending viewport change
+        if (this.viewportChangeTimeout) {
+          clearTimeout(this.viewportChangeTimeout);
+        }
+
+        // Wait for keyboard to fully close
+        this.viewportChangeTimeout = setTimeout(() => {
+          this.handleViewportChange();
+        }, 300);
       });
     }
   },
 
   /**
    * Handle viewport changes (keyboard show/hide on iOS)
+   * Includes debouncing to prevent layout thrashing in iOS PWA
    */
   handleViewportChange() {
+    const now = Date.now();
+
+    // Skip if called too recently (within 50ms) - prevents rapid-fire updates
+    if (this.lastViewportUpdate && now - this.lastViewportUpdate < 50) {
+      return;
+    }
+
     let viewportHeight, viewportTop;
-    
+
     if (window.visualViewport) {
       viewportHeight = window.visualViewport.height;
       viewportTop = window.visualViewport.offsetTop;
@@ -304,10 +337,18 @@ const Mobile = {
       viewportHeight = window.innerHeight;
       viewportTop = 0;
     }
-    
+
+    // Skip if viewport height hasn't actually changed (prevents duplicate renders)
+    if (Math.abs(viewportHeight - this.lastViewportHeight) < 5) {
+      return;
+    }
+
+    this.lastViewportUpdate = now;
+    this.lastViewportHeight = viewportHeight;
+
     const windowHeight = window.innerHeight;
     const heightDiff = windowHeight - viewportHeight - viewportTop;
-    
+
     // Keyboard is visible if viewport is significantly smaller
     const wasKeyboardVisible = this.isKeyboardVisible;
     this.isKeyboardVisible = heightDiff > 100;

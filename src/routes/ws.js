@@ -13,7 +13,29 @@ const connections = new Map();
  * @param {http.Server} server - HTTP server instance
  */
 export function initWebSocket(server) {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    // CRITICAL: Disable compression for iOS compatibility
+    // iOS 14/15+ has bugs with permessage-deflate that cause disconnections
+    perMessageDeflate: false
+  });
+
+  // Server-side heartbeat to detect dead connections
+  // iOS PWAs aggressively close idle connections after 30-60s
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        console.log('[WS] Terminating dead connection');
+        return ws.terminate();
+      }
+      ws.isAlive = false;
+      ws.ping(); // WebSocket protocol-level ping
+    });
+  }, 25000); // Check every 25 seconds
+
+  wss.on('close', () => {
+    clearInterval(heartbeatInterval);
+  });
 
   // Handle WebSocket upgrade requests
   server.on('upgrade', (request, socket, head) => {
@@ -48,6 +70,12 @@ export function initWebSocket(server) {
   wss.on('connection', (ws, request, session) => {
     const sessionId = session.id;
     console.log('[WS] Client connected to session:', sessionId);
+
+    // Mark connection as alive for heartbeat
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
 
     // Store the connection
     connections.set(sessionId, ws);
@@ -84,7 +112,7 @@ export function initWebSocket(server) {
               session.pty.write(msg.data);
             }
             break;
-            
+
           case 'resize':
             // Resize PTY
             if (session.pty && msg.cols && msg.rows) {
@@ -92,7 +120,14 @@ export function initWebSocket(server) {
               console.log('[WS] Resized PTY to', msg.cols + 'x' + msg.rows);
             }
             break;
-            
+
+          case 'ping':
+            // Client-side heartbeat - respond immediately
+            // This helps iOS detect zombie connections
+            ws.isAlive = true;
+            ws.send(JSON.stringify({ type: 'pong', timestamp: msg.timestamp }));
+            break;
+
           default:
             console.log('[WS] Unknown message type:', msg.type);
         }

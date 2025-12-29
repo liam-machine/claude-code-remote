@@ -3,7 +3,7 @@
  * Provides offline caching for PWA functionality
  */
 
-const CACHE_NAME = 'claude-code-remote-v1';
+const CACHE_NAME = 'claude-code-remote-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -23,34 +23,23 @@ const CDN_ASSETS = [
   'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js'
 ];
 
-// Install event - cache static assets
+// Install event - cache local assets only (fast activation)
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker...');
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Caching static assets');
-      // Cache local assets
-      const localPromise = cache.addAll(STATIC_ASSETS).catch(err => {
-        console.warn('[SW] Failed to cache some local assets:', err);
-      });
-      // Cache CDN assets (may fail if offline)
-      const cdnPromise = Promise.all(
-        CDN_ASSETS.map(url => 
-          cache.add(url).catch(err => {
-            console.warn('[SW] Failed to cache CDN asset:', url, err);
-          })
-        )
-      );
-      return Promise.all([localPromise, cdnPromise]);
+      console.log('[SW] Caching local assets only (CDN cached in background)');
+      return cache.addAll(STATIC_ASSETS);
     }).then(() => {
-      console.log('[SW] Installation complete');
-      // Activate immediately
+      console.log('[SW] Installation complete - activating immediately');
       return self.skipWaiting();
+    }).catch(err => {
+      console.warn('[SW] Install failed:', err);
     })
   );
 });
 
-// Activate event - clean up old caches
+// Activate event - clean up old caches and claim clients immediately
 self.addEventListener('activate', (event) => {
   console.log('[SW] Activating service worker...');
   event.waitUntil(
@@ -64,62 +53,102 @@ self.addEventListener('activate', (event) => {
           })
       );
     }).then(() => {
-      console.log('[SW] Activation complete');
-      // Take control of all clients immediately
+      console.log('[SW] Activation complete - claiming clients');
       return self.clients.claim();
     })
   );
+
+  // Cache CDN assets in background (non-blocking)
+  // This runs AFTER activation, so it doesn't delay the app
+  caches.open(CACHE_NAME).then((cache) => {
+    console.log('[SW] Background caching CDN assets...');
+    CDN_ASSETS.forEach(url => {
+      cache.match(url).then(cached => {
+        if (!cached) {
+          cache.add(url).then(() => {
+            console.log('[SW] Cached CDN asset:', url);
+          }).catch(err => {
+            console.warn('[SW] Failed to cache CDN asset:', url, err);
+          });
+        }
+      });
+    });
+  });
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event - CRITICAL: Minimize interference with WebSocket and API requests
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  
-  // Skip WebSocket requests
-  if (url.protocol === 'ws:' || url.protocol === 'wss:') {
+
+  // CRITICAL FOR iOS PWA: Skip ALL of these immediately without ANY processing:
+  // 1. WebSocket protocol requests (though SW rarely sees these)
+  // 2. WebSocket upgrade paths (/ws/*)
+  // 3. API requests (/api/*)
+  // 4. Non-GET requests (POST, PUT, DELETE, etc.)
+  // 5. Requests with Upgrade header (WebSocket handshakes)
+
+  // Skip non-GET requests entirely
+  if (event.request.method !== 'GET') {
     return;
   }
-  
-  // Skip API requests (always go to network)
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/')) {
+
+  // Skip WebSocket and API paths - let browser handle directly
+  if (url.pathname.startsWith('/ws/') || url.pathname.startsWith('/api/')) {
     return;
   }
-  
+
+  // Skip if request has Upgrade header (WebSocket handshake)
+  if (event.request.headers.get('Upgrade')) {
+    return;
+  }
+
+  // Only cache static assets - be very selective
+  const isStaticAsset =
+    url.pathname === '/' ||
+    url.pathname === '/index.html' ||
+    url.pathname.startsWith('/css/') ||
+    url.pathname.startsWith('/js/') ||
+    url.pathname.startsWith('/icons/') ||
+    url.pathname === '/manifest.json' ||
+    url.origin === 'https://cdn.jsdelivr.net';
+
+  // If not a static asset, let browser handle it directly
+  if (!isStaticAsset) {
+    return;
+  }
+
+  // For static assets: cache-first for speed, network fallback
   event.respondWith(
-    // Try network first
-    fetch(event.request)
-      .then((response) => {
-        // Clone the response before caching
-        const responseClone = response.clone();
-        
-        // Cache successful responses
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        // Return cached version immediately, update cache in background
+        fetch(event.request).then((response) => {
+          if (response.status === 200) {
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, response);
+            });
+          }
+        }).catch(() => {});
+        return cachedResponse;
+      }
+
+      // Not cached, fetch from network
+      return fetch(event.request).then((response) => {
         if (response.status === 200) {
+          const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseClone);
           });
         }
-        
         return response;
-      })
-      .catch(() => {
-        // Network failed, try cache
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          
-          // Return offline fallback for navigation requests
-          if (event.request.mode === 'navigate') {
-            return caches.match('/index.html');
-          }
-          
-          // Return a basic error response
-          return new Response('Offline', {
-            status: 503,
-            statusText: 'Service Unavailable'
-          });
-        });
-      })
+      }).catch(() => {
+        // Network failed, return offline page for navigation
+        if (event.request.mode === 'navigate') {
+          return caches.match('/index.html');
+        }
+        return new Response('Offline', { status: 503 });
+      });
+    })
   );
 });
 
