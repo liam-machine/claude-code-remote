@@ -723,53 +723,57 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  max-width: 500px;
+  gap: 4px;
+  max-width: 100%;
   margin: 0 auto;
+  padding: 0 8px;
 }
 
 .control-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  height: 36px;
-  padding: 0 10px;
+  min-width: 36px;
+  height: 32px;
+  padding: 0 6px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.1s, border-color 0.1s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .control-btn:active {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg-primary);
+  transform: scale(0.95);
 }
 
 .control-btn .ctrl-label {
-  font-size: 10px;
+  font-size: 9px;
   opacity: 0.7;
-  margin-right: 2px;
+  margin-right: 1px;
 }
 
 .control-btn.arrow-btn {
-  min-width: 36px;
+  min-width: 32px;
   padding: 0;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .control-divider {
   width: 1px;
-  height: 24px;
+  height: 20px;
   background: var(--border);
-  margin: 0 4px;
+  margin: 0 2px;
 }
 
 /* Adjust terminal container when control bar is visible */
@@ -1000,9 +1004,9 @@ html, body {
 
 /* Hide button in control bar */
 .control-btn.hide-btn {
-  min-width: 36px;
+  min-width: 32px;
   padding: 0;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
