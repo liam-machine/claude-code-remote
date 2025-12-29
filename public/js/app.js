@@ -10,6 +10,8 @@ const App = {
   maxReconnectAttempts: 5,
   modalElement: null,        // Current modal reference
   toastContainer: null,      // Toast notification container
+  initialized: false,        // Flag to prevent reconnection before sessions loaded
+  lastVisibilityCheck: 0,    // Debounce visibility change handler
   
   // Prompt detection patterns for Claude
   promptPatterns: [
@@ -24,16 +26,20 @@ const App = {
    */
   async init() {
     console.log("[App] Claude Code Remote initializing...");
-    
+
     // Create toast container
     this.createToastContainer();
-    
+
     // Set up event listeners
     this.setupEventListeners();
-    
+
     // Load existing sessions
     await this.loadExistingSessions();
-    
+
+    // Mark as initialized - now safe to run checkAllConnections()
+    this.initialized = true;
+    console.log("[App] Initialization complete");
+
     // If no sessions exist, show empty state
     if (this.sessions.size === 0) {
       this.showEmptyState();
@@ -70,10 +76,11 @@ const App = {
 
     // iOS PWA: Handle visibility changes to detect/fix zombie connections
     // iOS freezes PWAs when backgrounded without firing WebSocket close events
+    // Debounced to prevent rapid-fire reconnection attempts
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         console.log("[App] App became visible - checking connections");
-        this.checkAllConnections();
+        this.debouncedCheckConnections();
       }
     });
 
@@ -81,21 +88,47 @@ const App = {
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) {
         console.log("[App] Page restored from bfcache - checking connections");
-        this.checkAllConnections();
+        this.debouncedCheckConnections();
       }
     });
 
     // Handle online/offline events
     window.addEventListener("online", () => {
       console.log("[App] Network came online - checking connections");
-      this.checkAllConnections();
+      this.debouncedCheckConnections();
     });
+  },
+
+  /**
+   * Debounced wrapper for checkAllConnections (prevents rapid-fire calls)
+   */
+  debouncedCheckConnections() {
+    const now = Date.now();
+    // Don't check more than once every 2 seconds
+    if (now - this.lastVisibilityCheck < 2000) {
+      console.log("[App] Skipping connection check - too recent");
+      return;
+    }
+    this.lastVisibilityCheck = now;
+    this.checkAllConnections();
   },
 
   /**
    * Check all session connections and reconnect if needed (iOS PWA fix)
    */
   checkAllConnections() {
+    // Don't run until app is fully initialized (sessions loaded)
+    if (!this.initialized) {
+      console.log("[App] Skipping connection check - not initialized yet");
+      return;
+    }
+
+    // Don't run if no sessions exist
+    if (this.sessions.size === 0) {
+      console.log("[App] No sessions to check");
+      return;
+    }
+
     for (const [sessionId, session] of this.sessions) {
       if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
         console.log("[App] Session", sessionId, "needs reconnection");
@@ -865,10 +898,11 @@ const App = {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
           // Set pong timeout - if no response, connection is dead
+          // 30s timeout to handle slow mobile networks
           session.pongTimeout = setTimeout(() => {
             console.warn("[App] Pong timeout - connection may be dead, forcing reconnect");
             ws.close();
-          }, 10000); // 10 second timeout for pong
+          }, 30000); // 30 second timeout for pong (was 10s, too aggressive)
         }
       }, 20000); // Send heartbeat every 20 seconds
     };

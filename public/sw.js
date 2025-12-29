@@ -3,7 +3,7 @@
  * Provides offline caching for PWA functionality
  */
 
-const CACHE_NAME = 'claude-code-remote-v3';
+const CACHE_NAME = 'claude-code-remote-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -39,7 +39,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate event - clean up old caches and claim clients immediately
+// Activate event - clean up old caches (NO clients.claim() to avoid page reload)
 self.addEventListener('activate', (event) => {
   console.log('[SW] Activating service worker...');
   event.waitUntil(
@@ -53,8 +53,10 @@ self.addEventListener('activate', (event) => {
           })
       );
     }).then(() => {
-      console.log('[SW] Activation complete - claiming clients');
-      return self.clients.claim();
+      console.log('[SW] Activation complete');
+      // NOTE: Removed clients.claim() - it was causing page reloads during
+      // initialization which delayed WebSocket connections. The SW will
+      // take control naturally on the next navigation.
     })
   );
 
