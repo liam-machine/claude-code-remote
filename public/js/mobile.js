@@ -6,8 +6,10 @@
 
 const Mobile = {
   controlBar: null,
+  controlBarToggle: null,
   hiddenInput: null,
   isKeyboardVisible: false,
+  isControlBarVisible: false,
   keyboardHeight: 0,
 
   /**
@@ -22,7 +24,11 @@ const Mobile = {
 
     console.log('[Mobile] Initializing mobile features...');
     
+    // Load saved preference
+    this.isControlBarVisible = localStorage.getItem('controlBarVisible') === 'true';
+    
     this.createControlBar();
+    this.createControlBarToggle();
     this.createHiddenInput();
     this.setupKeyboardDetection();
     this.setupTerminalTapHandler();
@@ -40,34 +46,89 @@ const Mobile = {
   },
 
   /**
+   * Create the toggle button for control bar
+   */
+  createControlBarToggle() {
+    const toggle = document.createElement('button');
+    toggle.className = 'control-bar-toggle';
+    toggle.setAttribute('aria-label', 'Toggle control bar');
+    toggle.innerHTML = '⌨';
+    
+    // Set initial state
+    if (this.isControlBarVisible) {
+      toggle.classList.add('active');
+    }
+    
+    toggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleControlBar();
+    });
+    
+    document.body.appendChild(toggle);
+    this.controlBarToggle = toggle;
+  },
+
+  /**
+   * Toggle control bar visibility
+   */
+  toggleControlBar() {
+    this.isControlBarVisible = !this.isControlBarVisible;
+    
+    // Save preference
+    localStorage.setItem('controlBarVisible', this.isControlBarVisible);
+    
+    // Update UI
+    if (this.controlBar) {
+      this.controlBar.classList.toggle('visible', this.isControlBarVisible);
+    }
+    if (this.controlBarToggle) {
+      this.controlBarToggle.classList.toggle('active', this.isControlBarVisible);
+    }
+    
+    // Update terminal height
+    this.updateTerminalHeight();
+    
+    console.log('[Mobile] Control bar', this.isControlBarVisible ? 'shown' : 'hidden');
+  },
+
+  /**
    * Create the iOS control bar (F025)
    */
   createControlBar() {
     const controlBar = document.createElement('div');
     controlBar.className = 'control-bar';
+    
+    // Set initial visibility
+    if (this.isControlBarVisible) {
+      controlBar.classList.add('visible');
+    }
+    
     controlBar.innerHTML = `
-      <div class=control-bar-inner>
-        <button class=control-btn data-key=ctrl-c aria-label=Control C>
-          <span class=ctrl-label>Ctrl</span>C
+      <div class="control-bar-inner">
+        <button class="control-btn" data-key="ctrl-c" aria-label="Control C">
+          <span class="ctrl-label">Ctrl</span>C
         </button>
-        <button class=control-btn data-key=ctrl-d aria-label=Control D>
-          <span class=ctrl-label>Ctrl</span>D
+        <button class="control-btn" data-key="ctrl-d" aria-label="Control D">
+          <span class="ctrl-label">Ctrl</span>D
         </button>
-        <button class=control-btn data-key=tab aria-label=Tab>Tab</button>
-        <button class=control-btn data-key=esc aria-label=Escape>Esc</button>
-        <div class=control-divider></div>
-        <button class=control-btn arrow-btn data-key=up aria-label=Arrow Up>↑</button>
-        <button class=control-btn arrow-btn data-key=down aria-label=Arrow Down>↓</button>
-        <button class=control-btn arrow-btn data-key=left aria-label=Arrow Left>←</button>
-        <button class=control-btn arrow-btn data-key=right aria-label=Arrow Right>→</button>
+        <button class="control-btn" data-key="tab" aria-label="Tab">Tab</button>
+        <button class="control-btn" data-key="esc" aria-label="Escape">Esc</button>
+        <div class="control-divider"></div>
+        <button class="control-btn arrow-btn" data-key="up" aria-label="Arrow Up">↑</button>
+        <button class="control-btn arrow-btn" data-key="down" aria-label="Arrow Down">↓</button>
+        <button class="control-btn arrow-btn" data-key="left" aria-label="Arrow Left">←</button>
+        <button class="control-btn arrow-btn" data-key="right" aria-label="Arrow Right">→</button>
+        <div class="control-divider"></div>
+        <button class="control-btn hide-btn" data-action="hide" aria-label="Hide control bar">✕</button>
       </div>
     `;
 
     document.body.appendChild(controlBar);
     this.controlBar = controlBar;
 
-    // Add click handlers
-    controlBar.querySelectorAll('.control-btn').forEach(btn => {
+    // Add click handlers for control keys
+    controlBar.querySelectorAll('.control-btn[data-key]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         this.handleControlKey(btn.dataset.key);
@@ -77,6 +138,15 @@ const Mobile = {
         }
       });
     });
+    
+    // Add click handler for hide button
+    const hideBtn = controlBar.querySelector('.hide-btn');
+    if (hideBtn) {
+      hideBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.toggleControlBar();
+      });
+    }
   },
 
   /**
@@ -231,9 +301,15 @@ const Mobile = {
       // Position above keyboard
       const bottom = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
       this.controlBar.style.bottom = bottom + 'px';
+      if (this.controlBarToggle) {
+        this.controlBarToggle.style.bottom = (bottom + (this.isControlBarVisible ? 52 : 0) + 8) + 'px';
+      }
     } else {
       // Reset to default (CSS handles safe area)
       this.controlBar.style.bottom = '';
+      if (this.controlBarToggle) {
+        this.controlBarToggle.style.bottom = '';
+      }
     }
   },
 
@@ -245,8 +321,8 @@ const Mobile = {
     if (!terminalContainer) return;
 
     if (this.isKeyboardVisible) {
-      // Account for control bar height (44px) + keyboard
-      const controlBarHeight = this.controlBar ? this.controlBar.offsetHeight : 44;
+      // Account for control bar height (if visible) + keyboard
+      const controlBarHeight = (this.controlBar && this.isControlBarVisible) ? this.controlBar.offsetHeight : 0;
       const offset = this.keyboardHeight + controlBarHeight;
       terminalContainer.style.paddingBottom = offset + 'px';
     } else {
