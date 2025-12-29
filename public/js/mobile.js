@@ -116,12 +116,12 @@ const Mobile = {
         <button class=control-btn data-key=tab aria-label=Tab>Tab</button>
         <button class=control-btn data-key=esc aria-label=Escape>Esc</button>
         <div class=control-divider></div>
-        <button class=control-btn arrow-btn data-key=up aria-label=Arrow Up>↑</button>
-        <button class=control-btn arrow-btn data-key=down aria-label=Arrow Down>↓</button>
-        <button class=control-btn arrow-btn data-key=left aria-label=Arrow Left>←</button>
-        <button class=control-btn arrow-btn data-key=right aria-label=Arrow Right>→</button>
+        <button class="control-btn arrow-btn" data-key=up aria-label=Arrow Up>↑</button>
+        <button class="control-btn arrow-btn" data-key=down aria-label=Arrow Down>↓</button>
+        <button class="control-btn arrow-btn" data-key=left aria-label=Arrow Left>←</button>
+        <button class="control-btn arrow-btn" data-key=right aria-label=Arrow Right>→</button>
         <div class=control-divider></div>
-        <button class=control-btn scroll-btn data-action=scroll-bottom aria-label=Scroll to bottom>⤓</button>
+        <button class="control-btn scroll-btn" data-action=scroll-bottom aria-label=Scroll to bottom>⤓</button>
       </div>
     `;
 
