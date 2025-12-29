@@ -122,7 +122,6 @@ const Mobile = {
         <button class=control-btn arrow-btn data-key=right aria-label=Arrow Right>→</button>
         <div class=control-divider></div>
         <button class=control-btn scroll-btn data-action=scroll-bottom aria-label=Scroll to bottom>⤓</button>
-        <button class=control-btn hide-btn data-action=hide aria-label=Hide control bar>✕</button>
       </div>
     `;
 
@@ -141,14 +140,7 @@ const Mobile = {
       });
     });
     
-    // Add click handler for hide button
-    const hideBtn = controlBar.querySelector('.hide-btn');
-    if (hideBtn) {
-      hideBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        this.toggleControlBar();
-      });
-    }
+
     
     // Add click handler for scroll-to-bottom button
     const scrollBtn = controlBar.querySelector('.scroll-btn');
