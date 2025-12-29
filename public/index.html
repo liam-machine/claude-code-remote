@@ -23,7 +23,7 @@
   <div class="app-container">
     <header class="header">
       <div class="header-left">
-        <button class="refresh-btn" id="refreshBtn" title="Refresh" aria-label="Refresh page">↻</button>
+        <button class="refresh-btn" id="refreshBtn" title="Hard Refresh App" aria-label="Hard refresh app">↻</button>
         <h1>Claude Code</h1>
       </div>
       <div class="status-indicator">
@@ -41,6 +41,19 @@
       <!-- Terminal elements will be dynamically created here -->
     </main>
   </div>
+  
+  <!-- Confirmation Modal -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal">
+      <h2>Refresh App?</h2>
+      <p>This will clear all cached data and reload the app. Your terminal sessions will be disconnected.</p>
+      <div class="modal-buttons">
+        <button class="modal-btn cancel" id="confirmCancel">Cancel</button>
+        <button class="modal-btn confirm" id="confirmOk">Refresh</button>
+      </div>
+    </div>
+  </div>
+  
   <!-- xterm.js and addons from CDN -->
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
@@ -48,19 +61,105 @@
   <script src="/js/app.js"></script>
   <script src="/js/mobile.js"></script>
   <script>
-    // Show refresh button only in standalone/PWA mode
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then((registration) => {
+          console.log('[App] Service worker registered:', registration.scope);
+          
+          // Check for updates periodically
+          setInterval(() => {
+            registration.update();
+          }, 60000); // Check every minute
+        })
+        .catch((error) => {
+          console.error('[App] Service worker registration failed:', error);
+        });
+    }
+    
+    // Hard refresh function - clears all caches and reloads
+    async function hardRefreshApp() {
+      console.log('[App] Starting hard refresh...');
+      
+      try {
+        // 1. Unregister all service workers
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map(r => {
+            console.log('[App] Unregistering service worker:', r.scope);
+            return r.unregister();
+          }));
+        }
+        
+        // 2. Clear all caches
+        if ('caches' in window) {
+          const cacheNames = await caches.keys();
+          await Promise.all(cacheNames.map(name => {
+            console.log('[App] Deleting cache:', name);
+            return caches.delete(name);
+          }));
+        }
+        
+        // 3. Clear storage (except controlBarVisible preference)
+        const controlBarPref = localStorage.getItem('controlBarVisible');
+        localStorage.clear();
+        sessionStorage.clear();
+        if (controlBarPref !== null) {
+          localStorage.setItem('controlBarVisible', controlBarPref);
+        }
+        
+        console.log('[App] Cache cleared, reloading...');
+        
+        // 4. Hard reload (bypass cache)
+        window.location.reload(true);
+      } catch (error) {
+        console.error('[App] Hard refresh failed:', error);
+        // Fallback to simple reload
+        window.location.reload(true);
+      }
+    }
+    
+    // Setup refresh button and modal
     (function() {
       const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                            window.navigator.standalone === true ||
                            document.referrer.includes('android-app://');
       
       const refreshBtn = document.getElementById('refreshBtn');
+      const modal = document.getElementById('confirmModal');
+      const confirmOk = document.getElementById('confirmOk');
+      const confirmCancel = document.getElementById('confirmCancel');
+      
+      // Show refresh button in standalone mode OR always (for testing)
       if (refreshBtn) {
-        if (isStandalone) {
-          refreshBtn.style.display = 'flex';
-        }
+        // Always show for now - can be changed to isStandalone only
+        refreshBtn.style.display = 'flex';
+        
         refreshBtn.addEventListener('click', () => {
-          window.location.reload();
+          modal.classList.add('visible');
+        });
+      }
+      
+      // Modal handlers
+      if (confirmOk) {
+        confirmOk.addEventListener('click', () => {
+          modal.classList.remove('visible');
+          hardRefreshApp();
+        });
+      }
+      
+      if (confirmCancel) {
+        confirmCancel.addEventListener('click', () => {
+          modal.classList.remove('visible');
+        });
+      }
+      
+      // Close modal on overlay click
+      if (modal) {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) {
+            modal.classList.remove('visible');
+          }
         });
       }
     })();
