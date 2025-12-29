@@ -65,6 +65,7 @@ const Mobile = {
     const toggle = document.createElement('button');
     toggle.className = 'control-bar-toggle';
     toggle.setAttribute('aria-label', 'Toggle control bar');
+    toggle.setAttribute('tabindex', '-1');  // Prevent focus on tap
     toggle.innerHTML = '⌨';
     
     // Set initial state
@@ -72,7 +73,20 @@ const Mobile = {
       toggle.classList.add('active');
     }
     
+    // Use touchend for iOS to prevent keyboard toggle
+    toggle.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Don't change hidden input focus - just toggle control bar
+      this.toggleControlBar();
+    }, { passive: false });
+    
+    // Fallback for non-touch (desktop testing)
     toggle.addEventListener('click', (e) => {
+      // Only handle if not already handled by touchend
+      if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) {
+        return; // Already handled by touchend
+      }
       e.preventDefault();
       e.stopPropagation();
       this.toggleControlBar();
