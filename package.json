@@ -1,0 +1,21 @@
+{
+  "name": "claude-code-remote",
+  "version": "1.0.0",
+  "description": "Web interface for remotely operating Claude Code CLI from mobile devices",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "@fastify/static": "^8.0.0",
+    "ws": "^8.18.0",
+    "node-pty": "^1.0.0",
+    "uuid": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
