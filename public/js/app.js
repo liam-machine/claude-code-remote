@@ -856,6 +856,7 @@ const App = {
   async closeSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+
     
     try {
       // Close WebSocket
@@ -903,6 +904,12 @@ const App = {
   connectWebSocket(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+
+    // Prevent duplicate connections - skip if already connecting or connected
+    if (session.ws && (session.ws.readyState === WebSocket.CONNECTING || session.ws.readyState === WebSocket.OPEN)) {
+      console.log("[App] WebSocket already exists for session:", sessionId, "state:", session.ws.readyState);
+      return;
+    }
     
     session.status = "connecting";
     this.updateTabStatus(sessionId, "connecting");
@@ -1052,7 +1059,7 @@ const App = {
   showReconnectCountdown(sessionId, delay, attempt) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    
+
     let remaining = Math.ceil(delay / 1000);
     
     const updateCountdown = () => {
@@ -1076,6 +1083,7 @@ const App = {
   handleMessage(sessionId, msg) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+
 
     // iOS PWA FIX: State reconciliation
     // If we receive ANY message, the connection IS working, even if onopen never fired
@@ -1186,7 +1194,7 @@ const App = {
   updateSessionStatus(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    
+
     if (session.status === "connected") {
       this.updateStatus("connected", "Connected");
     } else if (session.status === "connecting") {
