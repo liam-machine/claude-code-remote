@@ -5,7 +5,11 @@
  */
 
 const App = {
-  sessions: new Map(),       // Map<sessionId, { ws, terminal, status, repo }>
+  sessions: new Map(),
+
+  // Loading screen timer state
+  loadingStartTime: null,
+  loadingTimerInterval: null,       // Map<sessionId, { ws, terminal, status, repo }>
   activeSessionId: null,     // Currently visible session
   maxReconnectAttempts: 5,
   modalElement: null,        // Current modal reference
@@ -33,9 +37,87 @@ const App = {
   },
 
   /**
+   * Start the loading elapsed time timer
+   */
+  startLoadingTimer() {
+    this.loadingStartTime = Date.now();
+    const elapsedContainer = document.getElementById('loadingElapsed');
+    const elapsedTime = document.getElementById('elapsedTime');
+    const elapsedHint = document.getElementById('elapsedHint');
+    const retryBtn = document.getElementById('retryBtn');
+
+    // Show elapsed container after 3 seconds
+    setTimeout(() => {
+      if (elapsedContainer && this.loadingStartTime) {
+        elapsedContainer.classList.add('visible');
+      }
+    }, 3000);
+
+    // Update every second
+    this.loadingTimerInterval = setInterval(() => {
+      if (!this.loadingStartTime) return;
+
+      const elapsed = Math.floor((Date.now() - this.loadingStartTime) / 1000);
+
+      // Update time display
+      if (elapsedTime) {
+        if (elapsed < 60) {
+          elapsedTime.textContent = elapsed + 's';
+        } else {
+          const mins = Math.floor(elapsed / 60);
+          const secs = elapsed % 60;
+          elapsedTime.textContent = mins + 'm ' + secs + 's';
+        }
+      }
+
+      // Progressive hints based on elapsed time
+      if (elapsedHint) {
+        if (elapsed >= 90) {
+          elapsedHint.textContent = 'This is taking longer than usual. You can retry or wait.';
+          if (retryBtn) {
+            retryBtn.style.display = 'block';
+            retryBtn.classList.add('visible');
+          }
+        } else if (elapsed >= 60) {
+          elapsedHint.textContent = 'Claude CLI is initializing. This can take up to 2 minutes on first load.';
+        } else if (elapsed >= 30) {
+          elapsedHint.textContent = 'Establishing secure connection...';
+        } else if (elapsed >= 10) {
+          elapsedHint.textContent = 'Starting Claude CLI...';
+        } else {
+          elapsedHint.textContent = '';
+        }
+      }
+    }, 1000);
+  },
+
+  /**
+   * Stop the loading timer and reset UI
+   */
+  stopLoadingTimer() {
+    this.loadingStartTime = null;
+    if (this.loadingTimerInterval) {
+      clearInterval(this.loadingTimerInterval);
+      this.loadingTimerInterval = null;
+    }
+
+    // Reset UI elements
+    const elapsedContainer = document.getElementById('loadingElapsed');
+    const retryBtn = document.getElementById('retryBtn');
+    if (elapsedContainer) elapsedContainer.classList.remove('visible');
+    if (retryBtn) {
+      retryBtn.style.display = 'none';
+      retryBtn.classList.remove('visible');
+    }
+  },
+
+  /**
    * Hide loading screen and show app
    */
   hideLoadingScreen() {
+    // Stop the elapsed timer
+    this.stopLoadingTimer();
+
     // Force-hide loading screen - use multiple methods for iOS PWA reliability
     const loadingScreen = document.getElementById('loadingScreen');
     if (loadingScreen) {
@@ -53,6 +135,15 @@ const App = {
   async init() {
     console.log("[App] Claude Code Remote initializing...");
     this.updateLoadingStatus('Initializing...');
+    this.startLoadingTimer();
+
+    // Set up retry button handler
+    const retryBtn = document.getElementById('retryBtn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        window.location.reload();
+      });
+    }
 
     // Create toast container
     this.createToastContainer();
