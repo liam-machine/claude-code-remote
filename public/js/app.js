@@ -159,14 +159,13 @@ const App = {
     this.initialized = true;
     console.log("[App] Initialization complete");
     
-    // Hide loading screen
-    this.updateLoadingStatus('Ready!');
-    setTimeout(() => this.hideLoadingScreen(), 300);
-
-    // If no sessions exist, show empty state
+    // If no sessions exist, show empty state and hide loading screen
     if (this.sessions.size === 0) {
+      this.updateLoadingStatus('Ready!');
+      setTimeout(() => this.hideLoadingScreen(), 300);
       this.showEmptyState();
     }
+    // Otherwise, loading screen will be hidden when WebSocket connects (ws.onopen)
   },
 
   /**
@@ -834,7 +833,8 @@ const App = {
       status: "connecting",
       reconnectAttempts: 0,
       lastOutputTime: 0,
-      hasRecentOutput: false
+      hasRecentOutput: false,
+      needsScrollToBottom: true  // Scroll to bottom on first output
     });
     
     // Create tab
@@ -902,8 +902,18 @@ const App = {
     
     // Focus and fit terminal
     if (session.terminal) {
-      session.terminal.fit();
+      // Use forceFit for session switch
+      if (typeof ResizeCoordinator !== 'undefined') {
+        ResizeCoordinator.forceFit();
+      } else {
+        session.terminal.fit();
+      }
       session.terminal.focus();
+      
+      // SCROLL TO BOTTOM on session switch - user expectation
+      setTimeout(() => {
+        session.terminal.scrollToBottom();
+      }, 50);
       
       // Send resize
       const dims = session.terminal.getDimensions();
@@ -1003,10 +1013,11 @@ const App = {
       session.status = "connected";
       this.updateTabStatus(sessionId, "idle");
 
+      // Always hide loading screen when any WebSocket connects
+      this.hideLoadingScreen();
+
       if (sessionId === this.activeSessionId) {
         this.updateStatus("connected", "Connected");
-        // Ensure loading screen is hidden when connection succeeds
-        this.hideLoadingScreen();
 
         // Send initial size and focus
         if (session.terminal) {
