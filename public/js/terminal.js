@@ -60,7 +60,7 @@ const TerminalManager = {
       allowProposedApi: true,
       convertEol: true,
       // Touch/scroll improvements
-      scrollOnUserInput: false,
+      scrollOnUserInput: true,
       fastScrollModifier: 'none',
       smoothScrollDuration: 0
     });

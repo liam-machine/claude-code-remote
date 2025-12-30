@@ -3,7 +3,7 @@
  * Provides offline caching for PWA functionality
  */
 
-const CACHE_NAME = 'claude-code-remote-v15';
+const CACHE_NAME = 'claude-code-remote-v9';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

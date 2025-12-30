@@ -5,13 +5,7 @@
  */
 
 const App = {
-  sessions: new Map(),
-
-  // Loading screen timer state
-  loadingStartTime: null,
-  loadingTimerInterval: null,
-  loadingMaxTimeout: null,        // Force error after max wait
-  pendingConnections: 0,          // Track in-flight WebSocket connections       // Map<sessionId, { ws, terminal, status, repo }>
+  sessions: new Map(),       // Map<sessionId, { ws, terminal, status, repo }>
   activeSessionId: null,     // Currently visible session
   maxReconnectAttempts: 5,
   modalElement: null,        // Current modal reference
@@ -28,179 +22,16 @@ const App = {
   ],
 
   /**
-   * Update loading screen status text
-   */
-  updateLoadingStatus(status) {
-    const loadingStatus = document.getElementById('loadingStatus');
-    if (loadingStatus) {
-      loadingStatus.textContent = status;
-    }
-    console.log('[Loading]', status);
-  },
-
-  /**
-   * Start the loading elapsed time timer
-   */
-  startLoadingTimer() {
-    this.loadingStartTime = Date.now();
-    const elapsedContainer = document.getElementById('loadingElapsed');
-    const elapsedTime = document.getElementById('elapsedTime');
-    const elapsedHint = document.getElementById('elapsedHint');
-    const retryBtn = document.getElementById('retryBtn');
-
-    // Max timeout: Force error state after 60 seconds no matter what
-    this.loadingMaxTimeout = setTimeout(() => {
-      if (this.loadingStartTime) {
-        console.error('[App] Loading max timeout reached (60s)');
-        this.stopLoadingTimer();
-        this.showLoadingError('Connection timeout. Please check your network and retry.');
-      }
-    }, 60000);
-
-    // Show elapsed container after 3 seconds
-    setTimeout(() => {
-      if (elapsedContainer && this.loadingStartTime) {
-        elapsedContainer.classList.add('visible');
-      }
-    }, 3000);
-
-    // Update every second
-    this.loadingTimerInterval = setInterval(() => {
-      if (!this.loadingStartTime) return;
-
-      const elapsed = Math.floor((Date.now() - this.loadingStartTime) / 1000);
-
-      // Update time display
-      if (elapsedTime) {
-        if (elapsed < 60) {
-          elapsedTime.textContent = elapsed + 's';
-        } else {
-          const mins = Math.floor(elapsed / 60);
-          const secs = elapsed % 60;
-          elapsedTime.textContent = mins + 'm ' + secs + 's';
-        }
-      }
-
-      // Progressive hints based on elapsed time
-      if (elapsedHint) {
-        if (elapsed >= 90) {
-          elapsedHint.textContent = 'This is taking longer than usual. You can retry or wait.';
-          if (retryBtn) {
-            retryBtn.style.display = 'block';
-            retryBtn.classList.add('visible');
-          }
-        } else if (elapsed >= 60) {
-          elapsedHint.textContent = 'Claude CLI is initializing. This can take up to 2 minutes on first load.';
-        } else if (elapsed >= 30) {
-          elapsedHint.textContent = 'Establishing secure connection...';
-        } else if (elapsed >= 10) {
-          elapsedHint.textContent = 'Starting Claude CLI...';
-        } else {
-          elapsedHint.textContent = '';
-        }
-      }
-    }, 1000);
-  },
-
-  /**
-   * Stop the loading timer and reset UI
-   */
-  stopLoadingTimer() {
-    this.loadingStartTime = null;
-    if (this.loadingTimerInterval) {
-      clearInterval(this.loadingTimerInterval);
-      this.loadingTimerInterval = null;
-    }
-    if (this.loadingMaxTimeout) {
-      clearTimeout(this.loadingMaxTimeout);
-      this.loadingMaxTimeout = null;
-    }
-
-    // Reset UI elements
-    const elapsedContainer = document.getElementById('loadingElapsed');
-    const retryBtn = document.getElementById('retryBtn');
-    if (elapsedContainer) elapsedContainer.classList.remove('visible');
-    if (retryBtn) {
-      retryBtn.style.display = 'none';
-      retryBtn.classList.remove('visible');
-    }
-  },
-
-  /**
-   * Show error state on loading screen
-   */
-  showLoadingError(message) {
-    const loadingScreen = document.getElementById('loadingScreen');
-    const loadingStatus = document.getElementById('loadingStatus');
-    const loadingSpinner = document.querySelector('.loading-spinner');
-    const retryBtn = document.getElementById('retryBtn');
-
-    if (loadingStatus) {
-      loadingStatus.textContent = message;
-      loadingStatus.style.color = 'var(--error, #ef4444)';
-    }
-    if (loadingSpinner) {
-      loadingSpinner.style.display = 'none';
-    }
-    if (retryBtn) {
-      retryBtn.style.display = 'block';
-      retryBtn.classList.add('visible');
-    }
-  },
-
-  /**
-   * Hide loading screen and show app
-   */
-  hideLoadingScreen() {
-    // Stop the elapsed timer
-    this.stopLoadingTimer();
-
-    // Force-hide loading screen - use multiple methods for iOS PWA reliability
-    const loadingScreen = document.getElementById('loadingScreen');
-    if (loadingScreen) {
-      loadingScreen.classList.add('hidden');
-      // iOS PWA: Force display none after transition completes
-      setTimeout(() => {
-        loadingScreen.style.display = 'none';
-      }, 350);
-    }
-  },
-
-  /**
-   * Called when all WebSocket connections have failed
-   */
-  onAllConnectionsFailed() {
-    console.error('[App] All WebSocket connections failed');
-
-    // If loading screen is still visible, show error state
-    const loadingScreen = document.getElementById('loadingScreen');
-    if (loadingScreen && !loadingScreen.classList.contains('hidden')) {
-      this.showLoadingError('Unable to connect. Please check your network and retry.');
-    }
-  },
-
-  /**
    * Initialize the application
    */
   async init() {
     console.log("[App] Claude Code Remote initializing...");
-    this.updateLoadingStatus('Initializing...');
-    this.startLoadingTimer();
-
-    // Set up retry button handler
-    const retryBtn = document.getElementById('retryBtn');
-    if (retryBtn) {
-      retryBtn.addEventListener('click', () => {
-        window.location.reload();
-      });
-    }
 
     // Create toast container
     this.createToastContainer();
 
     // Set up event listeners
     this.setupEventListeners();
-    this.updateLoadingStatus('Loading sessions...');
 
     // Load existing sessions
     await this.loadExistingSessions();
@@ -208,14 +39,11 @@ const App = {
     // Mark as initialized - now safe to run checkAllConnections()
     this.initialized = true;
     console.log("[App] Initialization complete");
-    
-    // If no sessions exist, show empty state and hide loading screen
+
+    // If no sessions exist, show empty state
     if (this.sessions.size === 0) {
-      this.updateLoadingStatus('Ready!');
-      setTimeout(() => this.hideLoadingScreen(), 300);
       this.showEmptyState();
     }
-    // Otherwise, loading screen will be hidden when WebSocket connects (ws.onopen)
   },
 
   /**
@@ -794,22 +622,14 @@ const App = {
    */
   async loadExistingSessions() {
     try {
-      this.updateLoadingStatus('Connecting to server...');
       const response = await fetch("/api/sessions");
       if (!response.ok) throw new Error("Failed to fetch sessions");
       
       const sessions = await response.json();
       console.log("[App] Found existing sessions:", sessions.length);
       
-      if (sessions.length === 0) {
-        this.updateLoadingStatus('No existing sessions');
-        return;
-      }
-      
-      // Initialize sessions with progress updates
-      for (let i = 0; i < sessions.length; i++) {
-        const sessionData = sessions[i];
-        const repoName = sessionData.repo || "session"; this.updateLoadingStatus("Restoring " + repoName + "...");
+      // Initialize each session
+      for (const sessionData of sessions) {
         await this.initSession(sessionData);
       }
       
@@ -821,7 +641,6 @@ const App = {
       this.updateNewSessionButton();
     } catch (err) {
       console.error("[App] Failed to load sessions:", err);
-      this.updateLoadingStatus('Connection failed');
       this.updateStatus("disconnected", "Load Error");
     }
   },
@@ -883,8 +702,7 @@ const App = {
       status: "connecting",
       reconnectAttempts: 0,
       lastOutputTime: 0,
-      hasRecentOutput: false,
-      needsScrollToBottom: true  // Scroll to bottom on first output
+      hasRecentOutput: false
     });
     
     // Create tab
@@ -952,18 +770,8 @@ const App = {
     
     // Focus and fit terminal
     if (session.terminal) {
-      // Use forceFit for session switch
-      if (typeof ResizeCoordinator !== 'undefined') {
-        ResizeCoordinator.forceFit();
-      } else {
-        session.terminal.fit();
-      }
+      session.terminal.fit();
       session.terminal.focus();
-      
-      // SCROLL TO BOTTOM on session switch - user expectation
-      setTimeout(() => {
-        session.terminal.scrollToBottom();
-      }, 50);
       
       // Send resize
       const dims = session.terminal.getDimensions();
@@ -1043,57 +851,26 @@ const App = {
     const wsUrl = protocol + "//" + window.location.host + "/ws/" + sessionId;
     
     console.log("[App] Connecting WebSocket for session:", sessionId);
-    this.updateLoadingStatus('Establishing connection...');
     const ws = new WebSocket(wsUrl);
     session.ws = ws;
 
-    // Track this as a pending connection
-    this.pendingConnections = (this.pendingConnections || 0) + 1;
-
-    // Warning at 3 seconds
-    const warningTimeout = setTimeout(() => {
+    // Connection timeout warning for slow connections (PWA optimization)
+    const connectionTimeout = setTimeout(() => {
       if (session.status === "connecting") {
         console.warn("[App] WebSocket connection taking longer than expected");
-        this.updateLoadingStatus('Still connecting (this may take a moment)...');
         if (sessionId === this.activeSessionId) {
           this.showToast("Connection taking longer than expected...", "warning", 5000);
         }
       }
     }, 3000);
 
-    // Hard timeout at 30 seconds - force close and trigger error handling
-    const connectionTimeout = setTimeout(() => {
-      if (session.status === "connecting") {
-        console.error("[App] WebSocket connection hard timeout (30s)");
-        this.pendingConnections--;
-        ws.close();
-        if (this.pendingConnections <= 0) {
-          this.onAllConnectionsFailed();
-        }
-      }
-    }, 30000);
-
     ws.onopen = () => {
       clearTimeout(connectionTimeout);
-      clearTimeout(warningTimeout);
-      this.pendingConnections--;
       console.log("[App] WebSocket connected:", sessionId);
       session.reconnectAttempts = 0;
       session.status = "connected";
       this.updateTabStatus(sessionId, "idle");
 
-      // Always hide loading screen when any WebSocket connects
-      this.hideLoadingScreen();
-
-      // Always update status for this session
-      // Use setTimeout to ensure activeSessionId is set (race condition fix)
-      setTimeout(() => {
-        if (sessionId === this.activeSessionId) {
-          this.updateStatus("connected", "Connected");
-        }
-      }, 10);
-
-      // Also update immediately if we're already the active session
       if (sessionId === this.activeSessionId) {
         this.updateStatus("connected", "Connected");
 
@@ -1152,26 +929,8 @@ const App = {
         this.updateStatus("disconnected", "Disconnected");
       }
 
-      // Detect if session no longer exists on server (404 results in code 1006 on first attempt)
-      const isSessionGone = event.code === 1006 && session.reconnectAttempts === 0;
-
-      if (isSessionGone) {
-        // Session doesn't exist on server - remove locally and show empty state
-        console.warn("[App] Session no longer exists on server:", sessionId);
-        this.sessions.delete(sessionId);
-        const tab = document.querySelector('.tab[data-session-id="' + sessionId + '"]');
-        if (tab) tab.remove();
-
-        if (this.sessions.size === 0) {
-          this.hideLoadingScreen();
-          this.showEmptyState();
-        } else {
-          // Switch to another session
-          const nextSession = this.sessions.keys().next().value;
-          if (nextSession) this.switchToSession(nextSession);
-        }
-      } else if (event.code !== 1000 && session.reconnectAttempts < this.maxReconnectAttempts) {
-        // Attempt reconnect with visual feedback (F032)
+      // Attempt reconnect with visual feedback (F032)
+      if (event.code !== 1000 && session.reconnectAttempts < this.maxReconnectAttempts) {
         session.reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, session.reconnectAttempts), 10000);
         console.log("[App] Reconnecting in", delay + "ms...");
@@ -1187,14 +946,11 @@ const App = {
           this.updateStatus("disconnected", "Connection failed");
           this.showToast("Connection lost. Tap to retry.", "error", 0);
         }
-        // Check if all connections have failed
-        this.onAllConnectionsFailed();
       }
     };
 
     ws.onerror = (error) => {
       clearTimeout(connectionTimeout);
-      clearTimeout(warningTimeout);
       console.error("[App] WebSocket error:", sessionId, error);
     };
 
