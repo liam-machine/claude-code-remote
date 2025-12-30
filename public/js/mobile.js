@@ -4,6 +4,119 @@
  * Features: F025, F026, F027, F030
  */
 
+// =============================================================================
+// DEBUG LOGGING UTILITIES
+// =============================================================================
+const MobileDebug = {
+  enabled: true,  // Toggle to disable all debug logging
+  inputEventCount: 0,
+  hiddenInputCreationCount: 0,
+  
+  log(category, message, data = null) {
+    if (!this.enabled) return;
+    const timestamp = new Date().toISOString().substr(11, 12);
+    const prefix = `[Mobile:${category}] ${timestamp}`;
+    if (data) {
+      console.log(prefix, message, data);
+    } else {
+      console.log(prefix, message);
+    }
+  },
+  
+  warn(category, message, data = null) {
+    if (!this.enabled) return;
+    const timestamp = new Date().toISOString().substr(11, 12);
+    const prefix = `[Mobile:${category}] ⚠️ ${timestamp}`;
+    if (data) {
+      console.warn(prefix, message, data);
+    } else {
+      console.warn(prefix, message);
+    }
+  },
+  
+  error(category, message, data = null) {
+    const timestamp = new Date().toISOString().substr(11, 12);
+    const prefix = `[Mobile:${category}] ❌ ${timestamp}`;
+    if (data) {
+      console.error(prefix, message, data);
+    } else {
+      console.error(prefix, message);
+    }
+  },
+  
+  // Count all hidden input elements in DOM
+  countHiddenInputs() {
+    const inputs = document.querySelectorAll('.hidden-input');
+    const textareas = document.querySelectorAll('textarea');
+    return {
+      hiddenInputClass: inputs.length,
+      allTextareas: textareas.length,
+      elements: Array.from(inputs).map(el => ({
+        tagName: el.tagName,
+        id: el.id,
+        className: el.className,
+        parent: el.parentElement?.tagName
+      }))
+    };
+  },
+  
+  // Get simplified stack trace
+  getStackTrace() {
+    const stack = new Error().stack;
+    return stack.split('\n').slice(2, 6).map(line => line.trim()).join(' <- ');
+  },
+  
+  // Log DOM state
+  logDOMState(trigger) {
+    const counts = this.countHiddenInputs();
+    this.log('DOM', `State after ${trigger}:`, {
+      hiddenInputs: counts.hiddenInputClass,
+      totalTextareas: counts.allTextareas,
+      elements: counts.elements
+    });
+    
+    if (counts.hiddenInputClass > 1) {
+      this.error('DOM', `MULTIPLE HIDDEN INPUTS DETECTED! Count: ${counts.hiddenInputClass}`);
+    }
+  }
+};
+
+// =============================================================================
+// PWA LIFECYCLE EVENT LOGGING
+// =============================================================================
+document.addEventListener('visibilitychange', () => {
+  MobileDebug.log('PWA', `Visibility changed: ${document.visibilityState}`);
+  MobileDebug.logDOMState('visibilitychange');
+});
+
+window.addEventListener('pageshow', (e) => {
+  MobileDebug.log('PWA', `Pageshow event, persisted (bfcache): ${e.persisted}`);
+  if (e.persisted) {
+    MobileDebug.warn('PWA', 'Page restored from bfcache - checking for duplicate inputs');
+  }
+  MobileDebug.logDOMState('pageshow');
+});
+
+window.addEventListener('pagehide', (e) => {
+  MobileDebug.log('PWA', `Pagehide event, persisted: ${e.persisted}`);
+});
+
+window.addEventListener('focus', () => {
+  MobileDebug.log('PWA', 'Window focus');
+});
+
+window.addEventListener('blur', () => {
+  MobileDebug.log('PWA', 'Window blur');
+});
+
+// Service worker state changes
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    MobileDebug.log('PWA', 'Service worker controller changed');
+    MobileDebug.logDOMState('sw-controllerchange');
+  });
+}
+
 const Mobile = {
   initialized: false,        // Guard to prevent multiple initializations
   controlBar: null,
@@ -22,20 +135,24 @@ const Mobile = {
    * Initialize mobile features
    */
   init() {
+    MobileDebug.log('INIT', `init() called. Current state: initialized=${this.initialized}`);
+    MobileDebug.log('INIT', `Call stack: ${MobileDebug.getStackTrace()}`);
+    
     // Guard: Prevent multiple initializations (PWA can trigger init multiple times)
     if (this.initialized) {
-      console.log('[Mobile] Already initialized, skipping');
+      MobileDebug.warn('INIT', 'Already initialized, skipping - GUARD TRIGGERED');
+      MobileDebug.logDOMState('init-guard-skip');
       return;
     }
     
     // Only initialize on touch devices
     if (!this.isTouchDevice()) {
-      console.log('[Mobile] Not a touch device, skipping mobile init');
+      MobileDebug.log('INIT', 'Not a touch device, skipping mobile init');
       return;
     }
 
     this.initialized = true;  // Set flag early to prevent re-entry
-    console.log('[Mobile] Initializing mobile features...');
+    MobileDebug.log('INIT', 'Set initialized=true, proceeding with initialization');
     
     // Load saved preference
     this.isControlBarVisible = localStorage.getItem('controlBarVisible') === 'true';
@@ -46,7 +163,8 @@ const Mobile = {
     this.setupKeyboardDetection();
     this.setupTerminalTapHandler();
     
-    console.log('[Mobile] Mobile features initialized');
+    MobileDebug.log('INIT', 'Mobile features initialized successfully');
+    MobileDebug.logDOMState('init-complete');
   },
 
   /**
@@ -116,7 +234,7 @@ const Mobile = {
     // Update layout
     this.updateLayout();
     
-    console.log('[Mobile] Control bar', this.isControlBarVisible ? 'shown' : 'hidden');
+    MobileDebug.log('UI', `Control bar ${this.isControlBarVisible ? 'shown' : 'hidden'}`);
   },
 
   /**
@@ -142,12 +260,12 @@ const Mobile = {
         <button class=control-btn data-key=tab aria-label=Tab>Tab</button>
         <button class=control-btn data-key=esc aria-label=Escape>Esc</button>
         <div class=control-divider></div>
-        <button class="control-btn arrow-btn" data-key=up aria-label=Arrow Up>↑</button>
-        <button class="control-btn arrow-btn" data-key=down aria-label=Arrow Down>↓</button>
-        <button class="control-btn arrow-btn" data-key=left aria-label=Arrow Left>←</button>
-        <button class="control-btn arrow-btn" data-key=right aria-label=Arrow Right>→</button>
+        <button class=control-btn arrow-btn data-key=up aria-label=Arrow Up>↑</button>
+        <button class=control-btn arrow-btn data-key=down aria-label=Arrow Down>↓</button>
+        <button class=control-btn arrow-btn data-key=left aria-label=Arrow Left>←</button>
+        <button class=control-btn arrow-btn data-key=right aria-label=Arrow Right>→</button>
         <div class=control-divider></div>
-        <button class="control-btn scroll-btn" data-action=scroll-bottom aria-label=Scroll to bottom>⤓</button>
+        <button class=control-btn scroll-btn data-action=scroll-bottom aria-label=Scroll to bottom>⤓</button>
       </div>
     `;
 
@@ -186,7 +304,7 @@ const Mobile = {
       const session = App.sessions.get(App.activeSessionId);
       if (session && session.terminal && session.terminal.scrollToBottom) {
         session.terminal.scrollToBottom();
-        console.log('[Mobile] Scrolled to bottom');
+        MobileDebug.log('UI', 'Scrolled to bottom');
       }
     }
   },
@@ -217,18 +335,27 @@ const Mobile = {
    * Create hidden input for keyboard capture (F026)
    */
   createHiddenInput() {
+    MobileDebug.hiddenInputCreationCount++;
+    MobileDebug.log('INPUT', `createHiddenInput() called - attempt #${MobileDebug.hiddenInputCreationCount}`);
+    MobileDebug.log('INPUT', `Call stack: ${MobileDebug.getStackTrace()}`);
+    MobileDebug.log('INPUT', `Current this.hiddenInput ref: ${this.hiddenInput ? 'EXISTS' : 'NULL'}`);
+    
     // Guard: Check if hidden input already exists
     if (this.hiddenInput) {
-      console.log('[Mobile] Hidden input already exists, skipping creation');
+      MobileDebug.warn('INPUT', 'Hidden input reference exists, skipping creation - GUARD TRIGGERED');
+      MobileDebug.logDOMState('createHiddenInput-guard-skip');
       return;
     }
     
     // Clean up any orphaned hidden inputs (defensive)
     const existingInputs = document.querySelectorAll('.hidden-input');
-    existingInputs.forEach(el => {
-      console.log('[Mobile] Removing orphaned hidden input');
-      el.remove();
-    });
+    if (existingInputs.length > 0) {
+      MobileDebug.warn('INPUT', `Found ${existingInputs.length} orphaned hidden input(s), removing them`);
+      existingInputs.forEach((el, i) => {
+        MobileDebug.log('INPUT', `Removing orphaned input #${i}: ${el.tagName}, parent: ${el.parentElement?.tagName}`);
+        el.remove();
+      });
+    }
     
     const input = document.createElement('textarea');
     input.className = 'hidden-input';
@@ -237,19 +364,25 @@ const Mobile = {
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('spellcheck', 'false');
     input.setAttribute('aria-label', 'Terminal input');
+    input.setAttribute('data-created-at', new Date().toISOString());  // Debug: track creation time
     
     document.body.appendChild(input);
     this.hiddenInput = input;
+    
+    MobileDebug.log('INPUT', 'Created and attached new hidden input');
+    MobileDebug.logDOMState('createHiddenInput-after-create');
 
     // Track composition state (iOS autocomplete/IME)
     let isComposing = false;
 
     // Handle composition events (iOS autocomplete, IME input)
     input.addEventListener('compositionstart', () => {
+      MobileDebug.log('EVENT', 'compositionstart');
       isComposing = true;
     });
 
     input.addEventListener('compositionend', (e) => {
+      MobileDebug.log('EVENT', `compositionend, data: ${e.data}`);
       isComposing = false;
       // Send the final composed text
       if (e.data && typeof App !== 'undefined' && App.activeSessionId) {
@@ -261,8 +394,30 @@ const Mobile = {
     // Handle input events - THIS IS THE SOLE INPUT SOURCE
     // xterm.js onData has been disabled to prevent duplication
     input.addEventListener('input', (e) => {
+      MobileDebug.inputEventCount++;
+      const domState = MobileDebug.countHiddenInputs();
+      
+      MobileDebug.log('EVENT', `INPUT EVENT #${MobileDebug.inputEventCount}`, {
+        value: e.target.value,
+        valueLength: e.target.value.length,
+        inputType: e.inputType,
+        isComposing: isComposing,
+        hiddenInputsInDOM: domState.hiddenInputClass,
+        eventTarget: e.target.className,
+        targetCreatedAt: e.target.getAttribute('data-created-at')
+      });
+      
+      // CRITICAL: Check for multiple hidden inputs on every keystroke
+      if (domState.hiddenInputClass > 1) {
+        MobileDebug.error('EVENT', `MULTIPLE HIDDEN INPUTS DETECTED DURING INPUT! Count: ${domState.hiddenInputClass}`);
+        MobileDebug.log('EVENT', 'Elements:', domState.elements);
+      }
+      
       // Skip if composing (iOS autocomplete) - compositionend handles it
-      if (isComposing) return;
+      if (isComposing) {
+        MobileDebug.log('EVENT', 'Skipping input - composing');
+        return;
+      }
       
       // Set typing guard to prevent layout changes during active typing
       this.isTyping = true;
@@ -273,6 +428,7 @@ const Mobile = {
       
       const data = e.target.value;
       if (data && typeof App !== 'undefined' && App.activeSessionId) {
+        MobileDebug.log('EVENT', `Sending input to session ${App.activeSessionId}: ${data}`);
         App.sendInput(App.activeSessionId, data);
       }
       // Clear the input
@@ -284,6 +440,8 @@ const Mobile = {
 
     // Handle special keys via keydown
     input.addEventListener('keydown', (e) => {
+      MobileDebug.log('EVENT', `keydown: ${e.key}, ctrl: ${e.ctrlKey}, composing: ${isComposing}`);
+      
       // Skip if composing
       if (isComposing) return;
       
@@ -291,36 +449,42 @@ const Mobile = {
       if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
+        MobileDebug.log('EVENT', 'Enter key - sending \\r');
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\r');
         }
       } else if (e.key === 'Backspace') {
         e.preventDefault();
         e.stopPropagation();
+        MobileDebug.log('EVENT', 'Backspace key - sending \\x7f');
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\x7f');
         }
       } else if (e.key === 'Tab') {
         e.preventDefault();
         e.stopPropagation();
+        MobileDebug.log('EVENT', 'Tab key - sending \\t');
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\t');
         }
       } else if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
+        MobileDebug.log('EVENT', 'Escape key - sending \\x1b');
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\x1b');
         }
       } else if (e.ctrlKey && e.key === 'c') {
         e.preventDefault();
         e.stopPropagation();
+        MobileDebug.log('EVENT', 'Ctrl+C - sending \\x03');
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\x03');
         }
       } else if (e.ctrlKey && e.key === 'd') {
         e.preventDefault();
         e.stopPropagation();
+        MobileDebug.log('EVENT', 'Ctrl+D - sending \\x04');
         if (typeof App !== 'undefined' && App.activeSessionId) {
           App.sendInput(App.activeSessionId, '\x04');
         }
@@ -342,6 +506,7 @@ const Mobile = {
     if (!terminalContainer) return;
 
     terminalContainer.addEventListener('click', () => {
+      MobileDebug.log('UI', 'Terminal container clicked, focusing hidden input');
       if (this.hiddenInput) {
         this.hiddenInput.focus();
       }
@@ -378,6 +543,7 @@ const Mobile = {
     // CRITICAL: Use debouncing to prevent layout thrashing on iOS PWA
     if (this.hiddenInput) {
       this.hiddenInput.addEventListener('focus', () => {
+        MobileDebug.log('FOCUS', 'Hidden input focused');
         this.pendingScrollToBottom = true;
 
         // Cancel any pending viewport change
@@ -398,6 +564,7 @@ const Mobile = {
       });
 
       this.hiddenInput.addEventListener('blur', () => {
+        MobileDebug.log('FOCUS', 'Hidden input blurred');
         // Cancel any pending viewport change
         if (this.viewportChangeTimeout) {
           clearTimeout(this.viewportChangeTimeout);
@@ -418,6 +585,7 @@ const Mobile = {
   handleViewportChange() {
     // Skip viewport changes while actively typing to prevent PWA viewport jumping
     if (this.isTyping) {
+      MobileDebug.log('VIEWPORT', 'Skipping viewport change - isTyping=true');
       return;
     }
     
@@ -459,11 +627,11 @@ const Mobile = {
 
     // When keyboard just appeared, scroll to bottom
     if (this.isKeyboardVisible && !wasKeyboardVisible) {
-      console.log('[Mobile] Keyboard shown, height:', this.keyboardHeight);
+      MobileDebug.log('KEYBOARD', `Keyboard shown, height: ${this.keyboardHeight}`);
       // Scroll to bottom after layout update
       setTimeout(() => this.scrollToBottom(), 50);
     } else if (!this.isKeyboardVisible && wasKeyboardVisible) {
-      console.log('[Mobile] Keyboard hidden');
+      MobileDebug.log('KEYBOARD', 'Keyboard hidden');
     }
   },
 
@@ -547,6 +715,8 @@ const Mobile = {
    * Focus the hidden input (call from App when switching sessions)
    */
   focusInput() {
+    MobileDebug.log('FOCUS', 'focusInput() called');
+    MobileDebug.logDOMState('focusInput');
     if (this.hiddenInput && this.isTouchDevice()) {
       this.hiddenInput.focus();
     }
@@ -564,5 +734,11 @@ const Mobile = {
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+  MobileDebug.log('LIFECYCLE', 'DOMContentLoaded fired');
+  MobileDebug.logDOMState('DOMContentLoaded-before-init');
   Mobile.init();
 });
+
+// Expose debug utilities globally for console access
+window.MobileDebug = MobileDebug;
+window.Mobile = Mobile;
