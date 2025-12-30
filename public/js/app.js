@@ -9,7 +9,9 @@ const App = {
 
   // Loading screen timer state
   loadingStartTime: null,
-  loadingTimerInterval: null,       // Map<sessionId, { ws, terminal, status, repo }>
+  loadingTimerInterval: null,
+  loadingMaxTimeout: null,        // Force error after max wait
+  pendingConnections: 0,          // Track in-flight WebSocket connections       // Map<sessionId, { ws, terminal, status, repo }>
   activeSessionId: null,     // Currently visible session
   maxReconnectAttempts: 5,
   modalElement: null,        // Current modal reference
@@ -45,6 +47,15 @@ const App = {
     const elapsedTime = document.getElementById('elapsedTime');
     const elapsedHint = document.getElementById('elapsedHint');
     const retryBtn = document.getElementById('retryBtn');
+
+    // Max timeout: Force error state after 60 seconds no matter what
+    this.loadingMaxTimeout = setTimeout(() => {
+      if (this.loadingStartTime) {
+        console.error('[App] Loading max timeout reached (60s)');
+        this.stopLoadingTimer();
+        this.showLoadingError('Connection timeout. Please check your network and retry.');
+      }
+    }, 60000);
 
     // Show elapsed container after 3 seconds
     setTimeout(() => {
@@ -100,6 +111,10 @@ const App = {
       clearInterval(this.loadingTimerInterval);
       this.loadingTimerInterval = null;
     }
+    if (this.loadingMaxTimeout) {
+      clearTimeout(this.loadingMaxTimeout);
+      this.loadingMaxTimeout = null;
+    }
 
     // Reset UI elements
     const elapsedContainer = document.getElementById('loadingElapsed');
@@ -108,6 +123,28 @@ const App = {
     if (retryBtn) {
       retryBtn.style.display = 'none';
       retryBtn.classList.remove('visible');
+    }
+  },
+
+  /**
+   * Show error state on loading screen
+   */
+  showLoadingError(message) {
+    const loadingScreen = document.getElementById('loadingScreen');
+    const loadingStatus = document.getElementById('loadingStatus');
+    const loadingSpinner = document.querySelector('.loading-spinner');
+    const retryBtn = document.getElementById('retryBtn');
+
+    if (loadingStatus) {
+      loadingStatus.textContent = message;
+      loadingStatus.style.color = 'var(--error, #ef4444)';
+    }
+    if (loadingSpinner) {
+      loadingSpinner.style.display = 'none';
+    }
+    if (retryBtn) {
+      retryBtn.style.display = 'block';
+      retryBtn.classList.add('visible');
     }
   },
 
@@ -126,6 +163,19 @@ const App = {
       setTimeout(() => {
         loadingScreen.style.display = 'none';
       }, 350);
+    }
+  },
+
+  /**
+   * Called when all WebSocket connections have failed
+   */
+  onAllConnectionsFailed() {
+    console.error('[App] All WebSocket connections failed');
+
+    // If loading screen is still visible, show error state
+    const loadingScreen = document.getElementById('loadingScreen');
+    if (loadingScreen && !loadingScreen.classList.contains('hidden')) {
+      this.showLoadingError('Unable to connect. Please check your network and retry.');
     }
   },
 
@@ -996,8 +1046,11 @@ const App = {
     const ws = new WebSocket(wsUrl);
     session.ws = ws;
 
-    // Connection timeout warning for slow connections (PWA optimization)
-    const connectionTimeout = setTimeout(() => {
+    // Track this as a pending connection
+    this.pendingConnections = (this.pendingConnections || 0) + 1;
+
+    // Warning at 3 seconds
+    const warningTimeout = setTimeout(() => {
       if (session.status === "connecting") {
         console.warn("[App] WebSocket connection taking longer than expected");
         if (sessionId === this.activeSessionId) {
@@ -1006,8 +1059,22 @@ const App = {
       }
     }, 3000);
 
+    // Hard timeout at 30 seconds - force close and trigger error handling
+    const connectionTimeout = setTimeout(() => {
+      if (session.status === "connecting") {
+        console.error("[App] WebSocket connection hard timeout (30s)");
+        this.pendingConnections--;
+        ws.close();
+        if (this.pendingConnections <= 0) {
+          this.onAllConnectionsFailed();
+        }
+      }
+    }, 30000);
+
     ws.onopen = () => {
       clearTimeout(connectionTimeout);
+      clearTimeout(warningTimeout);
+      this.pendingConnections--;
       console.log("[App] WebSocket connected:", sessionId);
       session.reconnectAttempts = 0;
       session.status = "connected";
@@ -1074,8 +1141,26 @@ const App = {
         this.updateStatus("disconnected", "Disconnected");
       }
 
-      // Attempt reconnect with visual feedback (F032)
-      if (event.code !== 1000 && session.reconnectAttempts < this.maxReconnectAttempts) {
+      // Detect if session no longer exists on server (404 results in code 1006 on first attempt)
+      const isSessionGone = event.code === 1006 && session.reconnectAttempts === 0;
+
+      if (isSessionGone) {
+        // Session doesn't exist on server - remove locally and show empty state
+        console.warn("[App] Session no longer exists on server:", sessionId);
+        this.sessions.delete(sessionId);
+        const tab = document.querySelector('.tab[data-session-id="' + sessionId + '"]');
+        if (tab) tab.remove();
+
+        if (this.sessions.size === 0) {
+          this.hideLoadingScreen();
+          this.showEmptyState();
+        } else {
+          // Switch to another session
+          const nextSession = this.sessions.keys().next().value;
+          if (nextSession) this.switchToSession(nextSession);
+        }
+      } else if (event.code !== 1000 && session.reconnectAttempts < this.maxReconnectAttempts) {
+        // Attempt reconnect with visual feedback (F032)
         session.reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, session.reconnectAttempts), 10000);
         console.log("[App] Reconnecting in", delay + "ms...");
@@ -1091,11 +1176,14 @@ const App = {
           this.updateStatus("disconnected", "Connection failed");
           this.showToast("Connection lost. Tap to retry.", "error", 0);
         }
+        // Check if all connections have failed
+        this.onAllConnectionsFailed();
       }
     };
 
     ws.onerror = (error) => {
       clearTimeout(connectionTimeout);
+      clearTimeout(warningTimeout);
       console.error("[App] WebSocket error:", sessionId, error);
     };
 
