@@ -69,7 +69,8 @@ export function initWebSocket(server) {
   // Handle new WebSocket connections
   wss.on('connection', (ws, request, session) => {
     const sessionId = session.id;
-    console.log('[WS] Client connected to session:', sessionId);
+    const clientIP = request.socket?.remoteAddress || 'unknown';
+    console.log('[WS] Client connected to session:', sessionId, 'from IP:', clientIP);
 
     // Mark connection as alive for heartbeat
     ws.isAlive = true;
@@ -83,16 +84,47 @@ export function initWebSocket(server) {
     // Send initial status
     ws.send(JSON.stringify({ type: 'status', status: 'connected', sessionId }));
 
-    // Forward PTY output to WebSocket
-    const ptyDataHandler = (data) => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'output', data }));
+    // ============================================================
+    // BUFFERED PTY OUTPUT - Batches rapid PTY output to prevent
+    // overwhelming clients with many small WebSocket messages
+    // ============================================================
+    let outputBuffer = '';
+    let flushTimeout = null;
+    const FLUSH_INTERVAL = 50; // ms - collect output over 50ms window
+    
+    const flushBuffer = () => {
+      flushTimeout = null;
+      if (outputBuffer && ws.readyState === ws.OPEN) {
+        console.log('[WS] Flushing buffered output, length:', outputBuffer.length);
+        try {
+          ws.send(JSON.stringify({ type: 'output', data: outputBuffer }));
+        } catch (e) {
+          console.error('[WS] Send error:', e.message);
+        }
+        outputBuffer = '';
       }
     };
-    session.pty.onData(ptyDataHandler);
+
+    const ptyDataHandler = (data) => {
+      outputBuffer += data;
+      // Schedule flush if not already scheduled
+      if (!flushTimeout) {
+        flushTimeout = setTimeout(flushBuffer, FLUSH_INTERVAL);
+      }
+    };
+
+    // Attach handler after short delay for connection to stabilize
+    setTimeout(() => {
+      console.log('[WS] Attaching buffered PTY data handler (50ms batching)');
+      session.pty.onData(ptyDataHandler);
+    }, 100);
 
     // Handle PTY exit
     const ptyExitHandler = (exitCode) => {
+      // Flush any remaining output before sending exit
+      if (outputBuffer && ws.readyState === ws.OPEN) {
+        flushBuffer();
+      }
       console.log('[WS] PTY exited with code:', exitCode);
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
@@ -137,7 +169,13 @@ export function initWebSocket(server) {
     });
 
     // Handle WebSocket close
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
+      // Clean up flush timeout
+      if (flushTimeout) {
+        clearTimeout(flushTimeout);
+        flushTimeout = null;
+      }
+      console.log('[WS] Close code:', code, 'reason:', reason?.toString());
       console.log('[WS] Client disconnected from session:', sessionId);
       connections.delete(sessionId);
     });
