@@ -699,12 +699,12 @@ html, body {
    iOS tries to scroll fixed inputs into view on every keystroke,
    causing viewport bounce. Absolute + far left prevents this. */
 .hidden-input {
-  /* PWA-optimized hidden input - prevents iOS scroll-into-view behavior */
-  /* Using position:fixed at viewport origin with full opacity:0 */
-  /* This keeps input in viewport bounds so iOS won't try to scroll to it */
-  position: fixed;
+  /* Off-screen absolute positioning prevents iOS scroll-into-view behavior */
+  /* Positioned far off-screen so iOS won't try to scroll to it */
+  /* position:absolute removes it from viewport scroll calculations */
+  position: absolute;
   top: 0;
-  left: 0;
+  left: -9999px;
   width: 1px;
   height: 1px;
   opacity: 0;

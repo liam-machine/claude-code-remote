@@ -269,7 +269,7 @@ const Mobile = {
       clearTimeout(this.typingTimeout);
       this.typingTimeout = setTimeout(() => {
         this.isTyping = false;
-      }, 500); // Clear after 500ms of no typing
+      }, 750); // Clear after 750ms of no typing (must outlive 250ms viewport debounce)
       
       const data = e.target.value;
       if (data && typeof App !== 'undefined' && App.activeSessionId) {
@@ -457,11 +457,13 @@ const Mobile = {
     // Update layout
     this.updateLayout();
 
-    // When keyboard just appeared, scroll to bottom
+    // When keyboard just appeared, scroll to bottom (but let focus handler handle it if pending)
     if (this.isKeyboardVisible && !wasKeyboardVisible) {
       console.log('[Mobile] Keyboard shown, height:', this.keyboardHeight);
-      // Scroll to bottom after layout update
-      setTimeout(() => this.scrollToBottom(), 50);
+      // Only scroll if focus handler isn't already going to do it
+      if (!this.pendingScrollToBottom) {
+        setTimeout(() => this.scrollToBottom(), 50);
+      }
     } else if (!this.isKeyboardVisible && wasKeyboardVisible) {
       console.log('[Mobile] Keyboard hidden');
     }
