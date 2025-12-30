@@ -40,10 +40,61 @@ const App = {
     this.initialized = true;
     console.log("[App] Initialization complete");
 
+    // Start periodic health check to detect and fix state mismatches
+    this.startHealthCheck();
+
     // If no sessions exist, show empty state
     if (this.sessions.size === 0) {
       this.showEmptyState();
     }
+  },
+
+  /**
+   * Periodic health check to detect and fix WebSocket state mismatches
+   * Catches issues where browser state doesn't match our tracked state
+   */
+  startHealthCheck() {
+    setInterval(() => {
+      if (!this.initialized || this.sessions.size === 0) return;
+
+      for (const [sessionId, session] of this.sessions) {
+        const ws = session.ws;
+        if (!ws) continue;
+
+        // If WebSocket is OPEN but our status is still "connecting", fix it
+        if (ws.readyState === WebSocket.OPEN && session.status === "connecting") {
+          console.warn("[App] Health check: WebSocket OPEN but status was connecting - fixing");
+          session.status = "connected";
+          session.reconnectAttempts = 0;
+          this.updateTabStatus(sessionId, "idle");
+          if (sessionId === this.activeSessionId) {
+            this.updateStatus("connected", "Connected");
+          }
+        }
+
+        // If WebSocket is CLOSED/CLOSING but our status is "connected", trigger reconnect
+        if (ws.readyState >= WebSocket.CLOSING && session.status === "connected") {
+          console.warn("[App] Health check: WebSocket closed but status was connected - reconnecting");
+          session.status = "disconnected";
+          this.updateTabStatus(sessionId, "disconnected");
+          if (sessionId === this.activeSessionId) {
+            this.updateStatus("disconnected", "Disconnected");
+          }
+          this.connectWebSocket(sessionId);
+        }
+
+        // If stuck in CONNECTING for too long (backup to the 7s timeout)
+        if (session.status === "connecting" && session.connectionStartTime) {
+          const elapsed = Date.now() - session.connectionStartTime;
+          if (elapsed > 10000) {
+            console.warn("[App] Health check: Stuck in CONNECTING for 10s+ - forcing reconnection");
+            if (ws) try { ws.close(); } catch(e) {}
+            session.ws = null;
+            this.connectWebSocket(sessionId);
+          }
+        }
+      }
+    }, 2000); // Check every 2 seconds
   },
 
   /**
@@ -69,10 +120,22 @@ const App = {
 
     // iOS PWA: Handle visibility changes to detect/fix zombie connections
     // iOS freezes PWAs when backgrounded without firing WebSocket close events
-    // Debounced to prevent rapid-fire reconnection attempts
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         console.log("[App] App became visible - checking connections");
+        // Aggressive check: if any session has been "connecting" for more than 2 seconds, force reconnect
+        for (const [sessionId, session] of this.sessions) {
+          if (session.status === "connecting" && session.connectionStartTime) {
+            const elapsed = Date.now() - session.connectionStartTime;
+            if (elapsed > 2000) {
+              console.warn("[App] Session", sessionId, "stuck connecting for", elapsed, "ms - forcing reconnection");
+              if (session.ws) try { session.ws.close(); } catch(e) {}
+              session.ws = null;
+              this.connectWebSocket(sessionId);
+            }
+          }
+        }
+        // Also run the standard check
         this.debouncedCheckConnections();
       }
     });
@@ -853,19 +916,42 @@ const App = {
     console.log("[App] Connecting WebSocket for session:", sessionId);
     const ws = new WebSocket(wsUrl);
     session.ws = ws;
+    session.connectionStartTime = Date.now();
 
-    // Connection timeout warning for slow connections (PWA optimization)
-    const connectionTimeout = setTimeout(() => {
+    // Connection timeout with FORCED reconnection for iOS PWA
+    // Warning at 3s, force reconnect at 7s
+    const connectionWarningTimeout = setTimeout(() => {
       if (session.status === "connecting") {
         console.warn("[App] WebSocket connection taking longer than expected");
         if (sessionId === this.activeSessionId) {
-          this.showToast("Connection taking longer than expected...", "warning", 5000);
+          this.showToast("Connection taking longer than expected...", "warning", 3000);
         }
       }
     }, 3000);
 
+    // Force reconnection if stuck in CONNECTING for 7 seconds
+    session.connectionTimeoutId = setTimeout(() => {
+      if (session.status === "connecting") {
+        console.warn("[App] WebSocket stuck in CONNECTING for 7s - forcing reconnection");
+        clearTimeout(connectionWarningTimeout);
+        try { ws.close(); } catch(e) {}
+        session.ws = null;
+        session.reconnectAttempts++;
+        if (session.reconnectAttempts < this.maxReconnectAttempts) {
+          this.connectWebSocket(sessionId);
+        } else {
+          this.updateStatus("disconnected", "Connection failed");
+          this.showToast("Unable to connect. Please try refreshing.", "error", 0);
+        }
+      }
+    }, 7000);
+
     ws.onopen = () => {
-      clearTimeout(connectionTimeout);
+      clearTimeout(connectionWarningTimeout);
+      if (session.connectionTimeoutId) {
+        clearTimeout(session.connectionTimeoutId);
+        session.connectionTimeoutId = null;
+      }
       console.log("[App] WebSocket connected:", sessionId);
       session.reconnectAttempts = 0;
       session.status = "connected";
@@ -990,6 +1076,23 @@ const App = {
   handleMessage(sessionId, msg) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+
+    // iOS PWA FIX: State reconciliation
+    // If we receive ANY message, the connection IS working, even if onopen never fired
+    if (session.status === "connecting") {
+      console.warn("[App] Received message while still connecting - forcing connected state");
+      session.status = "connected";
+      session.reconnectAttempts = 0;
+      this.updateTabStatus(sessionId, "idle");
+      if (sessionId === this.activeSessionId) {
+        this.updateStatus("connected", "Connected");
+      }
+      // Clear any pending connection timeouts
+      if (session.connectionTimeoutId) {
+        clearTimeout(session.connectionTimeoutId);
+        session.connectionTimeoutId = null;
+      }
+    }
     
     switch (msg.type) {
       case "output":
