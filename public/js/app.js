@@ -794,7 +794,7 @@ const App = {
    */
   async loadExistingSessions() {
     try {
-      this.updateLoadingStatus('Fetching sessions...');
+      this.updateLoadingStatus('Connecting to server...');
       const response = await fetch("/api/sessions");
       if (!response.ok) throw new Error("Failed to fetch sessions");
       
@@ -809,7 +809,7 @@ const App = {
       // Initialize sessions with progress updates
       for (let i = 0; i < sessions.length; i++) {
         const sessionData = sessions[i];
-        this.updateLoadingStatus();
+        const repoName = sessionData.repo || "session"; this.updateLoadingStatus("Restoring " + repoName + "...");
         await this.initSession(sessionData);
       }
       
@@ -1043,6 +1043,7 @@ const App = {
     const wsUrl = protocol + "//" + window.location.host + "/ws/" + sessionId;
     
     console.log("[App] Connecting WebSocket for session:", sessionId);
+    this.updateLoadingStatus('Establishing connection...');
     const ws = new WebSocket(wsUrl);
     session.ws = ws;
 
@@ -1053,6 +1054,7 @@ const App = {
     const warningTimeout = setTimeout(() => {
       if (session.status === "connecting") {
         console.warn("[App] WebSocket connection taking longer than expected");
+        this.updateLoadingStatus('Still connecting (this may take a moment)...');
         if (sessionId === this.activeSessionId) {
           this.showToast("Connection taking longer than expected...", "warning", 5000);
         }
@@ -1083,6 +1085,15 @@ const App = {
       // Always hide loading screen when any WebSocket connects
       this.hideLoadingScreen();
 
+      // Always update status for this session
+      // Use setTimeout to ensure activeSessionId is set (race condition fix)
+      setTimeout(() => {
+        if (sessionId === this.activeSessionId) {
+          this.updateStatus("connected", "Connected");
+        }
+      }, 10);
+
+      // Also update immediately if we're already the active session
       if (sessionId === this.activeSessionId) {
         this.updateStatus("connected", "Connected");
 
